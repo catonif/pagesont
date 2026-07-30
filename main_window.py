@@ -19,7 +19,7 @@ from PyQt6.QtGui import QAction, QIcon, QTextCharFormat, QColor, QGuiApplication
 from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QTreeView, QWidget, QVBoxLayout,
     QFormLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
-    QFileDialog, QMessageBox, QHBoxLayout, QGroupBox,
+    QFileDialog, QMessageBox, QHBoxLayout,
     QStackedWidget, QScrollArea,
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
@@ -39,6 +39,16 @@ DIFF_DELETE = QTextCharFormat()
 DIFF_DELETE.setBackground(QColor("#ffcdd2"))   # red
 DIFF_REPLACE = QTextCharFormat()
 DIFF_REPLACE.setBackground(QColor("#ffe0b2"))  # orange
+
+# Directory with all the icons.
+ICON_DIR = Path(__file__).resolve().parent / "icons"
+
+def create_button(func, text, icon, stylesheet=False):
+    btn = QPushButton(QIcon(str(ICON_DIR / icon)), text)
+    if stylesheet:
+        btn.setStyleSheet(stylesheet)
+    btn.clicked.connect(func)
+    return btn
 
 
 # ======================================================================
@@ -331,13 +341,17 @@ class PropertiesPanel(QWidget):
         self._add_row("Lines:", QLabel(str(len(region.lines))))
         text_edit = self._add_text_row("Text:", region.text, lambda: self._set_region_text(region, text_edit.text()))
 
-        btn = QPushButton(QIcon("icons/circles_ext.svg"), "Merge nearby points")
-        btn.clicked.connect(lambda: self._clean_coords(region.coords))
-        self.buttons_layout.addWidget(btn)
+        self.buttons_layout.addWidget(create_button(
+            lambda: self._clean_coords(region.coords),
+            "Merge nearby points",
+            "circles_ext.svg"
+        ))
 
-        new_line_btn = QPushButton(QIcon("icons/variable_add.svg"), "New line")
-        new_line_btn.clicked.connect(lambda: self.new_line_requested.emit(region))
-        self.buttons_layout.addWidget(new_line_btn)
+        self.buttons_layout.addWidget(create_button(
+            lambda: self.new_line_requested.emit(region),
+            "New line",
+            "variable_add.svg"
+        ))
 
     # ---- Show line form ----------------------------------------------------
 
@@ -350,34 +364,46 @@ class PropertiesPanel(QWidget):
         baseline_edit = self._add_text_row("Baseline:", format_points(line.baseline), lambda: self._set_line_baseline(line, baseline_edit.text()))
         text_edit = self._add_text_row("Text:", line.text, lambda: self._set_line_text(line, text_edit.text()))
 
-        clean_btn = QPushButton(QIcon("icons/circles_ext.svg"), "Merge nearby points")
-        clean_btn.clicked.connect(lambda: self._clean_coords(line.coords))
-        self.buttons_layout.addWidget(clean_btn)
+        self.buttons_layout.addWidget(create_button(
+            lambda: self._clean_coords(line.coords),
+            "Merge nearby points",
+            "circles_ext.svg"
+        ))
 
-        merge_btn = QPushButton(QIcon("icons/cell_merge.svg"), "Merge with next line")
-        merge_btn.clicked.connect(lambda: self.merge_line_requested.emit(line))
-        self.buttons_layout.addWidget(merge_btn)
+        self.buttons_layout.addWidget(create_button(
+            lambda: self.merge_line_requested.emit(line),
+            "Merge with next line",
+            "cell_merge.svg"
+        ))
 
         move_widget = QWidget()
         move_layout = QHBoxLayout(move_widget)
         move_layout.setContentsMargins(0, 0, 0, 0)
-        up_btn = QPushButton(QIcon("icons/arrow_upward.svg"), "Move up")
-        up_btn.clicked.connect(lambda: self.move_line_up_requested.emit(line))
-        move_layout.addWidget(up_btn)
-        down_btn = QPushButton(QIcon("icons/arrow_downward.svg"), "Move down")
-        down_btn.clicked.connect(lambda: self.move_line_down_requested.emit(line))
-        move_layout.addWidget(down_btn)
+        move_layout.addWidget(create_button(
+            lambda: self.move_line_up_requested.emit(line),
+            "Move up",
+            "arrow_upward.svg"
+        ))
+        move_layout.addWidget(create_button(
+            lambda: self.move_line_down_requested.emit(line),
+            "Move down",
+            "arrow_downward.svg"
+        ))
         self.buttons_layout.addWidget(move_widget)
 
-        delete_btn = QPushButton(QIcon("icons/delete_forever.svg"), "Delete line")
-        delete_btn.setStyleSheet("QPushButton { color: red; }")
-        delete_btn.clicked.connect(lambda: self.delete_line_requested.emit(line))
-        self.buttons_layout.addWidget(delete_btn)
+        self.buttons_layout.addWidget(create_button(
+            lambda: self.delete_line_requested.emit(line),
+            "Delete line",
+            "delete_forever.svg",
+            "QPushButton { color: red; }"
+        ))
 
         if region is not None:
-            new_line_btn = QPushButton(QIcon("icons/variable_add.svg"), "New line")
-            new_line_btn.clicked.connect(lambda: self.new_line_requested.emit(region))
-            self.buttons_layout.addWidget(new_line_btn)
+            self.buttons_layout.addWidget(create_button(
+                lambda: self.new_line_requested.emit(region),
+                "New line",
+                "variable_add.svg"
+            ))
 
     def show_nothing(self):
         self.stack.setCurrentIndex(0)
