@@ -23,6 +23,8 @@ Edit region polygons, line coordinates, and baselines on top of the page image.
 
 Sidebar buttons: merge lines, reorder, delete, new line.
 
+![image](https://catonif.github.io/demo/pagesont/segmentation.png)
+
 ## Text mode (`text`)
 
 Review and correct OCR output. The proofread panel lists every line with diff highlighting. Click the page image to jump to the nearest line.
@@ -31,6 +33,8 @@ Review and correct OCR output. The proofread panel lists every line with diff hi
 - **Ctrl+T** — export plain text
 - **Ctrl+Shift+T** — copy plain text to clipboard
 
+![image](https://catonif.github.io/demo/pagesont/proofreading.png)
+
 ## Data model
 
-Built on PAGE XML 2019-07-15 (`TextRegion` → `TextLine`). All text is NFC-normalized on save. Polygons have no enforced winding order.
+Built on PAGE XML 2019-07-15, but only supports display for `TextRegion` and `TextLine`, while words and glyphs are stripped. All text is NFC-normalized on save. Polygons have no enforced winding order.
