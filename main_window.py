@@ -66,8 +66,7 @@ class PropertiesPanel(QWidget):
     changed(obj)                   — emitted when a property is edited
     proofread_focus_changed(line)  — emitted when cursor moves in a corrected-text field
     merge_line_requested(line)
-    move_line_up_requested(line)
-    move_line_down_requested(line)
+    move_line_requested(line, direction)
     delete_line_requested(line)
     new_line_requested(region)
     """
@@ -75,8 +74,7 @@ class PropertiesPanel(QWidget):
     changed = pyqtSignal(object)
     proofread_focus_changed = pyqtSignal(object)
     merge_line_requested = pyqtSignal(object)
-    move_line_up_requested = pyqtSignal(object)
-    move_line_down_requested = pyqtSignal(object)
+    move_line_requested = pyqtSignal(object, str)
     delete_line_requested = pyqtSignal(object)
     new_line_requested = pyqtSignal(object)
 
@@ -380,12 +378,12 @@ class PropertiesPanel(QWidget):
         move_layout = QHBoxLayout(move_widget)
         move_layout.setContentsMargins(0, 0, 0, 0)
         move_layout.addWidget(create_button(
-            lambda: self.move_line_up_requested.emit(line),
+            lambda: self.move_line_requested.emit(line, "up"),
             "Move up",
             "arrow_upward.svg"
         ))
         move_layout.addWidget(create_button(
-            lambda: self.move_line_down_requested.emit(line),
+            lambda: self.move_line_requested.emit(line, "down"),
             "Move down",
             "arrow_downward.svg"
         ))
@@ -532,8 +530,7 @@ class MainWindow(QMainWindow):
         self.properties.changed.connect(self._on_property_changed)
         self.properties.proofread_focus_changed.connect(self._on_proofread_focus)
         self.properties.merge_line_requested.connect(self._on_merge_line)
-        self.properties.move_line_up_requested.connect(lambda line: self._on_move_line(line, "up"))
-        self.properties.move_line_down_requested.connect(lambda line: self._on_move_line(line, "down"))
+        self.properties.move_line_requested.connect(lambda line, direction: self._on_move_line(line, direction))
         self.properties.delete_line_requested.connect(self._on_delete_line)
         self.properties.new_line_requested.connect(self._on_new_line_requested)
         self.page_view.line_drawn.connect(self._on_line_drawn)
@@ -750,7 +747,7 @@ class MainWindow(QMainWindow):
         region = self._region_for_line(line, self.doc.regions)
         if region is None:
             return
-        moved = region.move_line_up(line) if direction == "up" else region.move_line_down(line)
+        moved = region.move_line(line, direction)
         if moved:
             self._refresh_for(line)
             self.statusBar().showMessage(f"Line moved {direction}.", 3000)

@@ -7,225 +7,55 @@ and TextLine are actively used — Word and Glyph classes exist but are dead cod
 """
 
 from pathlib import Path
-import math
+import shapely
+from shapely.geometry import LineString, Polygon
+from shapely.ops import unary_union, nearest_points
 import unicodedata
 import lxml.etree as ET
 
 PAGE_NS = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15"
 
 
- # ----
+# ---------------------------------------------------------------------------
 # Coordinate helpers
- # ----
+# ---------------------------------------------------------------------------
 
 def parse_points(s):
     """Convert a PAGE XML points attribute like "100,200 150,250" into a list of (x, y) floats."""
     return [tuple(map(float, p.split(","))) for p in s.split()]
 
-
 def format_points(points):
     """Inverse of parse_points — writes integer coords without ".0" for whole numbers."""
     return " ".join(f"{int(x)},{int(y)}" for x, y in points)
 
-
-def clean_points(points, threshold=5.0):
+def clean_points(points, tolerance=5.0):
     """
-    Remove redundant points that are within *threshold* (Euclidean) of their neighbours.
-    Keeps first and last points; iteratively removes intermediate near-duplicates.
+    Simplify polygon with the Douglas-Peucker algorithm.
     """
-    if len(points) < 3:
-        return list(points)
-    first = points[0]
-    last = points[-1]
-    result = [first]
-    for p in points[1:-1]:
-        dx = p[0] - result[-1][0]
-        dy = p[1] - result[-1][1]
-        if (dx * dx + dy * dy) >= threshold * threshold:
-            result.append(p)
-    if len(result) == 1:
-        result.append(last)
-    else:
-        dx = last[0] - result[-1][0]
-        dy = last[1] - result[-1][1]
-        if (dx * dx + dy * dy) >= threshold * threshold:
-            result.append(last)
-        else:
-            result[-1] = last
-    return result
+    return list(shapely.simplify(
+        Polygon(points),
+        tolerance=tolerance
+    ).exterior.coords)
 
 
 def stitch_polygons(pts_a, pts_b):
     """
     Merge two polygon outlines into one composite polygon.
-
-    Strategy: find the closest pair of points across the two polygons, then check for
-    a second well-separated pair within 4× the minimum distance.  If a two-bridge
-    connection exists, try all four arc-direction combinations (CW/CWW × CW/CCW) and
-    pick the one yielding the largest polygon area (outer boundary).  Falls back to a
-    single-bridge cross-connect when the bridges are too close together.
     """
-    if not pts_a or not pts_b:
-        return list(pts_a) + list(pts_b)
-    n, m = len(pts_a), len(pts_b)
-
-    # Find the closest pair
-    best_d2 = float("inf")
-    i1 = j1 = 0
-    for i in range(n):
-        for j in range(m):
-            d2 = (pts_a[i][0] - pts_b[j][0]) ** 2 + (pts_a[i][1] - pts_b[j][1]) ** 2
-            if d2 < best_d2:
-                best_d2 = d2
-                i1, j1 = i, j
-
-    # Collect all pairs within 4x the minimum distance
-    threshold = max(best_d2 * 4, 100.0)
-    close_pairs = []
-    for i in range(n):
-        for j in range(m):
-            d2 = (pts_a[i][0] - pts_b[j][0]) ** 2 + (pts_a[i][1] - pts_b[j][1]) ** 2
-            if d2 <= threshold:
-                close_pairs.append((d2, i, j))
-
-    if len(close_pairs) < 2:
-        # Single bridge: use one-bridge cross-connect
-        result = pts_a[:i1 + 1] + pts_b[j1:] + pts_b[:j1] + pts_a[i1 + 1:]
-        return result
-
-    # Pick the two closest pairs at opposite ends (by x-coordinate)
-    close_pairs.sort(key=lambda t: pts_a[t[1]][0] + pts_b[t[2]][0])
-
-    # Check the leftmost and rightmost pairs are well-separated on both polygons
-    left = close_pairs[0]
-    right = close_pairs[-1]
-    di = min((left[1] - right[1]) % n, (right[1] - left[1]) % n)
-    dj = min((left[2] - right[2]) % m, (right[2] - left[2]) % m)
-    if left == right or di < 2 or dj < 2:
-        # Single bridge: go around A from start to closest, then all of B, then rest of A
-        result = pts_a[:i1 + 1] + pts_b[j1:] + pts_b[:j1] + pts_a[i1 + 1:]
-        return result
-
-    left_i, left_j = left[1], left[2]
-    right_i, right_j = right[1], right[2]
-
-    # Build both arcs (CW and CCW) for each polygon
-    def arc(pts, i, j, step):
-        if step > 0:
-            step_fn = lambda idx: (idx + 1) % len(pts)
-        else:
-            step_fn = lambda idx: (idx - 1) % len(pts)
-        result = []
-        idx = i
-        while True:
-            result.append(pts[idx])
-            if idx == j:
-                break
-            idx = step_fn(idx)
-        return result
-
-    cw_a = arc(pts_a, left_i, right_i, 1)
-    ccw_a = arc(pts_a, left_i, right_i, -1)
-    cw_b = arc(pts_b, right_j, left_j, 1)
-    ccw_b = arc(pts_b, right_j, left_j, -1)
-
-    # Pick the combination producing the largest polygon area (traces the outer boundary)
-    def poly_area(pts):
-        s = 0.0
-        for k in range(len(pts)):
-            x1, y1 = pts[k]
-            x2, y2 = pts[(k + 1) % len(pts)]
-            s += x1 * y2 - x2 * y1
-        return abs(s)
-
-    candidates = [(cw_a, cw_b), (cw_a, ccw_b), (ccw_a, cw_b), (ccw_a, ccw_b)]
-    best = max(candidates, key=lambda t: poly_area(t[0] + t[1]))
-    return best[0] + best[1]
+    poly_a = Polygon(pts_a)
+    poly_b = Polygon(pts_b)
+    if poly_a.intersects(poly_b):
+        return list(poly_a.union(poly_b).exterior.coords)
+    else:
+        # TODO: This only works for horizontal scripts.
+        p1, p2 = nearest_points(poly_a, poly_b)
+        bridge = LineString([p1, p2]).buffer(poly_a.area / poly_a.length)
+        return list(unary_union([ poly_a, poly_b, bridge ]).exterior.coords)
 
 
- # ----
-# Data model classes  (Word / Glyph are legacy — not actively used)
- # ----
-
-class PageGlyph:
-    """
-    A single glyph within a word.  Dead code — kept for backward compatibility
-    with PAGE XML files that include <Glyph> elements.
-    """
-    def __init__(self, elem=None):
-        self.id = ""
-        self.coords = []
-        self.text = ""
-        self.confidence = 0.0
-        if elem is not None:
-            self._from_elem(elem)
-
-    def _from_elem(self, elem):
-        self.id = elem.get("id", "")
-        c = elem.find(f"{{{PAGE_NS}}}Coords")
-        if c is not None:
-            self.coords = parse_points(c.get("points", ""))
-        te = elem.find(f"{{{PAGE_NS}}}TextEquiv")
-        if te is not None:
-            u = te.find(f"{{{PAGE_NS}}}Unicode")
-            if u is not None and u.text:
-                self.text = u.text
-            self.confidence = float(te.get("conf", 0))
-
-    def _to_elem(self, parent):
-        e = ET.SubElement(parent, f"{{{PAGE_NS}}}Glyph")
-        if self.id:
-            e.set("id", self.id)
-        c = ET.SubElement(e, f"{{{PAGE_NS}}}Coords")
-        c.set("points", format_points(self.coords))
-        te = ET.SubElement(e, f"{{{PAGE_NS}}}TextEquiv")
-        te.set("conf", f"{self.confidence:.4f}")
-        u = ET.SubElement(te, f"{{{PAGE_NS}}}Unicode")
-        u.text = self.text
-        return e
-
-
-class PageWord:
-    """
-    A word within a text line.  Dead code — kept for backward compatibility
-    with PAGE XML files that include <Word> elements.
-    """
-    def __init__(self, elem=None):
-        self.id = ""
-        self.coords = []
-        self.text = ""
-        self.confidence = 0.0
-        self.glyphs = []
-        if elem is not None:
-            self._from_elem(elem)
-
-    def _from_elem(self, elem):
-        self.id = elem.get("id", "")
-        c = elem.find(f"{{{PAGE_NS}}}Coords")
-        if c is not None:
-            self.coords = parse_points(c.get("points", ""))
-        te = elem.find(f"{{{PAGE_NS}}}TextEquiv")
-        if te is not None:
-            u = te.find(f"{{{PAGE_NS}}}Unicode")
-            if u is not None and u.text:
-                self.text = u.text
-            self.confidence = float(te.get("conf", 0))
-        for g in elem.findall(f"{{{PAGE_NS}}}Glyph"):
-            self.glyphs.append(PageGlyph(g))
-
-    def _to_elem(self, parent):
-        e = ET.SubElement(parent, f"{{{PAGE_NS}}}Word")
-        if self.id:
-            e.set("id", self.id)
-        c = ET.SubElement(e, f"{{{PAGE_NS}}}Coords")
-        c.set("points", format_points(self.coords))
-        te = ET.SubElement(e, f"{{{PAGE_NS}}}TextEquiv")
-        te.set("conf", f"{self.confidence:.4f}")
-        u = ET.SubElement(te, f"{{{PAGE_NS}}}Unicode")
-        u.text = self.text
-        for g in self.glyphs:
-            g._to_elem(e)
-        return e
+# ---------------------------------------------------------------------------
+# Data model classes
+# ---------------------------------------------------------------------------
 
 
 class PageTextLine:
@@ -237,7 +67,6 @@ class PageTextLine:
         self.coords = []      # list of (x, y) tuples — closed polygon
         self.baseline = []    # list of (x, y) tuples — open polyline
         self.text = ""        # Unicode (OCR) text
-        self.confidence = 0.0
         if elem is not None:
             self._from_elem(elem)
 
@@ -254,7 +83,6 @@ class PageTextLine:
             u = te.find(f"{{{PAGE_NS}}}Unicode")
             if u is not None and u.text:
                 self.text = u.text
-            self.confidence = float(te.get("conf", 0))
 
     def _to_elem(self, parent):
         e = ET.SubElement(parent, f"{{{PAGE_NS}}}TextLine")
@@ -265,7 +93,6 @@ class PageTextLine:
         bl = ET.SubElement(e, f"{{{PAGE_NS}}}Baseline")
         bl.set("points", format_points(self.baseline))
         te = ET.SubElement(e, f"{{{PAGE_NS}}}TextEquiv")
-        te.set("conf", f"{self.confidence:.4f}")
         u = ET.SubElement(te, f"{{{PAGE_NS}}}Unicode")
         u.text = self.text
         return e
@@ -281,7 +108,6 @@ class PageRegion:
         self.type = ""
         self.coords = []
         self.text = ""
-        self.confidence = 0.0
         self.lines = []
         if elem is not None:
             self._from_elem(elem)
@@ -301,7 +127,6 @@ class PageRegion:
             u = te.find(f"{{{PAGE_NS}}}Unicode")
             if u is not None and u.text:
                 self.text = u.text
-            self.confidence = float(te.get("conf", 0))
         for tl in elem.findall(f"{{{PAGE_NS}}}TextLine"):
             self.lines.append(PageTextLine(tl))
 
@@ -344,20 +169,25 @@ class PageRegion:
         self.lines.pop(idx + 1)
         return True
 
-    def move_line_up(self, line):
-        """Swap *line* with the preceding line in the list."""
-        idx = self.lines.index(line)
-        if idx == 0:
-            return False
-        self.lines[idx], self.lines[idx - 1] = self.lines[idx - 1], self.lines[idx]
-        return True
+    def move_line(self, line, direction):
+        """Swap *line* with the following or preceding line in the list.
 
-    def move_line_down(self, line):
-        """Swap *line* with the following line in the list."""
+        *direction*: "up" or "down"
+        """
+        # Retrieve index of line to be moved.
         idx = self.lines.index(line)
-        if idx >= len(self.lines) - 1:
+        # Parse direction string.
+        if direction == "up":
+            new_idx = idx - 1
+        elif direction == "down":
+            new_idx = idx + 1
+        else:
+            raise ValueError(f"Unsupported direction {direction}.")
+        # Bounds reached, abort.
+        if not (0 < new_idx < len(self.lines)):
             return False
-        self.lines[idx], self.lines[idx + 1] = self.lines[idx + 1], self.lines[idx]
+        # Swap lines.
+        self.lines[idx], self.lines[new_idx] = self.lines[new_idx], self.lines[idx]
         return True
 
     def delete_line(self, line):

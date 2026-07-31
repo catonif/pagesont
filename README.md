@@ -5,7 +5,7 @@ A WYSIWYG editor for PAGE XML documents with two modes: segmentation editing and
 ## Quick start
 
 ```bash
-pip install PyQt6 lxml
+pip install PyQt6 lxml shapely
 python viewer.py seg [file.xml]   # segmentation mode
 python viewer.py text [file.xml]  # proofreading mode
 ```
