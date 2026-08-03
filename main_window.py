@@ -44,12 +44,24 @@ DIFF_REPLACE.setBackground(QColor("#ffe0b2"))  # orange
 ICON_DIR = Path(__file__).resolve().parent / "icons"
 
 def create_button(func, text, icon, stylesheet=False):
-    btn = QPushButton(QIcon(str(ICON_DIR / icon)), text)
+    btn = QPushButton(icon, text)
     if stylesheet:
         btn.setStyleSheet(stylesheet)
     btn.clicked.connect(func)
     return btn
 
+BTN_ICON_SIMPLIFY = QIcon(str(ICON_DIR / "circles_ext.svg"))
+BTN_TEXT_SIMPLIFY = "Simplify polygon"
+BTN_ICON_NEWLINE = QIcon(str(ICON_DIR / "variable_add.svg"))
+BTN_TEXT_NEWLINE = "New line"
+BTN_ICON_MERGELINES = QIcon(str(ICON_DIR / "cell_merge.svg"))
+BTN_TEXT_MERGELINES = "Merge with next line"
+BTN_ICON_MOVEUP = QIcon(str(ICON_DIR / "arrow_upward.svg"))
+BTN_TEXT_MOVEUP = "Move up in tree"
+BTN_ICON_MOVEDOWN = QIcon(str(ICON_DIR / "arrow_downward.svg"))
+BTN_TEXT_MOVEDOWN = "Move down in tree"
+BTN_ICON_DELETELINE = QIcon(str(ICON_DIR / "delete_forever.svg"))
+BTN_TEXT_DELETELINE = "Delete line"
 
 # ======================================================================
 # PropertiesPanel — right-side sidebar
@@ -155,8 +167,7 @@ class PropertiesPanel(QWidget):
             ocr_edit.setReadOnly(True)
             ocr_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             ocr_edit.setStyleSheet(
-                "QTextEdit { background-color: #ececec; border: 1px solid #ccc;"
-                " padding: 2px 4px; font-family: monospace; }"
+                "QTextEdit { background-color: #eee; border: 0; padding: 2px; font-family: monospace; }"
             )
             ocr_lines = line.text.count('\n') + 1
             ocr_edit.setFixedHeight(max(ocr_lines * 18 + 6, 28))
@@ -164,12 +175,11 @@ class PropertiesPanel(QWidget):
 
             # --- Corrected text (editable) ---
             corr_edit = QTextEdit()
-            corr_edit.setPlaceholderText("Type corrected text here…")
+            corr_edit.setPlaceholderText("Type corrected text here...")
             corr_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            corr_edit.setFixedHeight(30)
+            corr_edit.setFixedHeight(28)
             corr_edit.setStyleSheet(
-                "QTextEdit { background-color: #ffffff; border: 1px solid #aaa;"
-                " padding: 2px 4px; font-family: monospace; }"
+                "QTextEdit { background-color: #fff; border: 0; padding: 2px; font-family: monospace; }"
             )
             vbox.addWidget(corr_edit)
 
@@ -227,53 +237,35 @@ class PropertiesPanel(QWidget):
 
     def _highlight_diff(self, ocr_edit, corr_edit):
         """Apply coloured backgrounds to show insert/delete/replace diffs."""
-        ocr_text = ocr_edit.toPlainText()
-        corr_text = corr_edit.toPlainText()
-        s = difflib.SequenceMatcher(None, ocr_text, corr_text)
+        s = difflib.SequenceMatcher(None, ocr_edit.toPlainText(), corr_edit.toPlainText())
 
         ocr_selections = []
         corr_selections = []
 
-        for tag, i1, i2, j1, j2 in s.get_opcodes():
+        def highlight_selection(textedit, selections, format, start, end):
+            if start >= end:
+                return
+            selection = QTextEdit.ExtraSelection()
+            selection.format = format
+            cursor = textedit.textCursor()
+            cursor.setPosition(start)
+            cursor.setPosition(end, cursor.MoveMode.KeepAnchor)
+            selection.cursor = cursor
+            selections.append(selection)
+
+        for tag, ocr_start, ocr_end, corr_start, corr_end in s.get_opcodes():
             if tag == 'equal':
                 continue
             if tag == 'delete':
-                ocr_fmt = DIFF_DELETE
-                ocr_sel = QTextEdit.ExtraSelection()
-                ocr_sel.format = ocr_fmt
-                cur = ocr_edit.textCursor()
-                cur.setPosition(i1)
-                cur.setPosition(i2, cur.MoveMode.KeepAnchor)
-                ocr_sel.cursor = cur
-                ocr_selections.append(ocr_sel)
+                highlight_selection(ocr_edit, ocr_selections, DIFF_DELETE, ocr_start, ocr_end)
             elif tag == 'insert':
-                corr_fmt = DIFF_INSERT
-                corr_sel = QTextEdit.ExtraSelection()
-                corr_sel.format = corr_fmt
-                cur = corr_edit.textCursor()
-                cur.setPosition(j1)
-                cur.setPosition(j2, cur.MoveMode.KeepAnchor)
-                corr_sel.cursor = cur
-                corr_selections.append(corr_sel)
+                highlight_selection(corr_edit, corr_selections, DIFF_INSERT, corr_start, corr_end)
             elif tag == 'replace':
-                if i1 < i2:
-                    ocr_fmt = DIFF_REPLACE
-                    ocr_sel = QTextEdit.ExtraSelection()
-                    ocr_sel.format = ocr_fmt
-                    cur = ocr_edit.textCursor()
-                    cur.setPosition(i1)
-                    cur.setPosition(i2, cur.MoveMode.KeepAnchor)
-                    ocr_sel.cursor = cur
-                    ocr_selections.append(ocr_sel)
-                if j1 < j2:
-                    corr_fmt = DIFF_REPLACE
-                    corr_sel = QTextEdit.ExtraSelection()
-                    corr_sel.format = corr_fmt
-                    cur = corr_edit.textCursor()
-                    cur.setPosition(j1)
-                    cur.setPosition(j2, cur.MoveMode.KeepAnchor)
-                    corr_sel.cursor = cur
-                    corr_selections.append(corr_sel)
+                d = min(ocr_end - ocr_start, corr_end - corr_start)
+                highlight_selection(ocr_edit, ocr_selections, DIFF_REPLACE, ocr_start, ocr_start + d)
+                highlight_selection(corr_edit, corr_selections, DIFF_REPLACE, corr_start, corr_start + d)
+                highlight_selection(ocr_edit, ocr_selections, DIFF_DELETE, ocr_start + d, ocr_end)
+                highlight_selection(corr_edit, corr_selections, DIFF_INSERT, corr_start + d, corr_end)
 
         ocr_edit.setExtraSelections(ocr_selections)
         corr_edit.setExtraSelections(corr_selections)
@@ -282,7 +274,7 @@ class PropertiesPanel(QWidget):
         """Auto-grow the corrected-text edit to fit its content."""
         doc = edit.document()
         doc.setTextWidth(edit.viewport().width())
-        h = int(doc.size().height()) + edit.frameWidth() * 2 + 4
+        h = int(doc.size().height()) + edit.frameWidth()
         edit.setFixedHeight(max(h, 28))
 
     # ---- Enter-key navigation in proofread mode ---------------------------
@@ -294,12 +286,18 @@ class PropertiesPanel(QWidget):
         """
         if event.type() == QEvent.Type.KeyPress:
             key = event.key()
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-                for i, entry in enumerate(self._proofread_list):
-                    if entry['corr'] is obj:
-                        if i + 1 < len(self._proofread_list):
-                            self._proofread_list[i + 1]['corr'].setFocus()
-                        return True
+            if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                move_amount = 0
+                if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Down):
+                    move_amount = 1
+                elif key == Qt.Key.Key_Up:
+                    move_amount = -1
+                if move_amount != 0:
+                    for i, entry in enumerate(self._proofread_list):
+                        if entry['corr'] is obj:
+                            if 0 <= i + move_amount < len(self._proofread_list):
+                                self._proofread_list[i + move_amount]['corr'].setFocus()
+                            return True
         return super().eventFilter(obj, event)
 
     # ---- Form helpers ------------------------------------------------------
@@ -341,14 +339,14 @@ class PropertiesPanel(QWidget):
 
         self.buttons_layout.addWidget(create_button(
             lambda: self._clean_coords(region.coords),
-            "Merge nearby points",
-            "circles_ext.svg"
+            BTN_TEXT_SIMPLIFY,
+            BTN_ICON_SIMPLIFY
         ))
 
         self.buttons_layout.addWidget(create_button(
             lambda: self.new_line_requested.emit(region),
-            "New line",
-            "variable_add.svg"
+            BTN_TEXT_NEWLINE,
+            BTN_ICON_NEWLINE
         ))
 
     # ---- Show line form ----------------------------------------------------
@@ -364,14 +362,14 @@ class PropertiesPanel(QWidget):
 
         self.buttons_layout.addWidget(create_button(
             lambda: self._clean_coords(line.coords),
-            "Merge nearby points",
-            "circles_ext.svg"
+            BTN_TEXT_SIMPLIFY,
+            BTN_ICON_SIMPLIFY
         ))
 
         self.buttons_layout.addWidget(create_button(
             lambda: self.merge_line_requested.emit(line),
-            "Merge with next line",
-            "cell_merge.svg"
+            BTN_TEXT_MERGELINES,
+            BTN_ICON_MERGELINES
         ))
 
         move_widget = QWidget()
@@ -379,28 +377,27 @@ class PropertiesPanel(QWidget):
         move_layout.setContentsMargins(0, 0, 0, 0)
         move_layout.addWidget(create_button(
             lambda: self.move_line_requested.emit(line, "up"),
-            "Move up",
-            "arrow_upward.svg"
+            BTN_TEXT_MOVEUP,
+            BTN_ICON_MOVEUP
         ))
         move_layout.addWidget(create_button(
             lambda: self.move_line_requested.emit(line, "down"),
-            "Move down",
-            "arrow_downward.svg"
+            BTN_TEXT_MOVEDOWN,
+            BTN_ICON_MOVEDOWN
         ))
         self.buttons_layout.addWidget(move_widget)
 
         self.buttons_layout.addWidget(create_button(
             lambda: self.delete_line_requested.emit(line),
-            "Delete line",
-            "delete_forever.svg",
-            "QPushButton { color: red; }"
+            BTN_TEXT_DELETELINE,
+            BTN_ICON_DELETELINE
         ))
 
         if region is not None:
             self.buttons_layout.addWidget(create_button(
                 lambda: self.new_line_requested.emit(region),
-                "New line",
-                "variable_add.svg"
+                BTN_TEXT_NEWLINE,
+                BTN_ICON_NEWLINE
             ))
 
     def show_nothing(self):

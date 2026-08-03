@@ -49,7 +49,12 @@ def stitch_polygons(pts_a, pts_b):
     else:
         # TODO: This only works for horizontal scripts.
         p1, p2 = nearest_points(poly_a, poly_b)
-        bridge = LineString([p1, p2]).buffer(poly_a.area / poly_a.length)
+        p1 = (p1.x, poly_a.centroid.y)
+        p2 = (p2.x, poly_b.centroid.y)
+        bridge = LineString([ p1, p2 ]).buffer(
+            min(poly_a.area / poly_a.length, poly_b.area / poly_b.length),
+            cap_style='square'
+        )
         return list(unary_union([ poly_a, poly_b, bridge ]).exterior.coords)
 
 
