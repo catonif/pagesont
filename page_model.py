@@ -189,7 +189,7 @@ class PageRegion:
         else:
             raise ValueError(f"Unsupported direction {direction}.")
         # Bounds reached, abort.
-        if not (0 < new_idx < len(self.lines)):
+        if not (0 <= new_idx < len(self.lines)):
             return False
         # Swap lines.
         self.lines[idx], self.lines[new_idx] = self.lines[new_idx], self.lines[idx]

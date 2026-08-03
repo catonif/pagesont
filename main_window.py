@@ -15,12 +15,12 @@ import uuid
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
-from PyQt6.QtGui import QAction, QIcon, QTextCharFormat, QColor, QGuiApplication
+from PyQt6.QtGui import QAction, QIcon, QTextCharFormat, QColor, QGuiApplication, QShortcut, QKeySequence
 from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QTreeView, QWidget, QVBoxLayout,
     QFormLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QHBoxLayout,
-    QStackedWidget, QScrollArea,
+    QStackedWidget, QScrollArea, QApplication,
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 
@@ -51,17 +51,17 @@ def create_button(func, text, icon, stylesheet=False):
     return btn
 
 BTN_ICON_SIMPLIFY = QIcon(str(ICON_DIR / "circles_ext.svg"))
-BTN_TEXT_SIMPLIFY = "Simplify polygon"
+BTN_TEXT_SIMPLIFY = "Simplify polygon (M)"
 BTN_ICON_NEWLINE = QIcon(str(ICON_DIR / "variable_add.svg"))
-BTN_TEXT_NEWLINE = "New line"
+BTN_TEXT_NEWLINE = "New line (N)"
 BTN_ICON_MERGELINES = QIcon(str(ICON_DIR / "cell_merge.svg"))
-BTN_TEXT_MERGELINES = "Merge with next line"
+BTN_TEXT_MERGELINES = "Merge with next line (Ctrl+M)"
 BTN_ICON_MOVEUP = QIcon(str(ICON_DIR / "arrow_upward.svg"))
-BTN_TEXT_MOVEUP = "Move up in tree"
+BTN_TEXT_MOVEUP = "Move up (Ctrl+Up)"
 BTN_ICON_MOVEDOWN = QIcon(str(ICON_DIR / "arrow_downward.svg"))
-BTN_TEXT_MOVEDOWN = "Move down in tree"
+BTN_TEXT_MOVEDOWN = "Move down (Ctrl+Down)"
 BTN_ICON_DELETELINE = QIcon(str(ICON_DIR / "delete_forever.svg"))
-BTN_TEXT_DELETELINE = "Delete line"
+BTN_TEXT_DELETELINE = "Delete line (Ctrl+K)"
 
 # ======================================================================
 # PropertiesPanel — right-side sidebar
@@ -390,7 +390,8 @@ class PropertiesPanel(QWidget):
         self.buttons_layout.addWidget(create_button(
             lambda: self.delete_line_requested.emit(line),
             BTN_TEXT_DELETELINE,
-            BTN_ICON_DELETELINE
+            BTN_ICON_DELETELINE,
+            "QPushButton { color: red; }"
         ))
 
         if region is not None:
@@ -456,6 +457,42 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self._build_ui()
+        if mode == "segmentation":
+            self._build_segmentation_shortcuts()
+
+    def _build_segmentation_shortcuts(self):
+        """Window-wide shortcuts for line navigation / moving, regardless of focus."""
+
+        def build_shortcut(sequence, func):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(func)
+
+        build_shortcut(Qt.Key.Key_Tab, lambda: self._on_tab_shortcut(True))
+        build_shortcut("Shift+Tab", lambda: self._on_tab_shortcut(False))
+        build_shortcut("Ctrl+Up", lambda: self._on_move_line_shortcut("up"))
+        build_shortcut("Ctrl+Down", lambda: self._on_move_line_shortcut("down"))
+        build_shortcut("Ctrl+K", self._on_delete_line_shortcut)
+        build_shortcut("Ctrl+M", self._on_merge_line_shortcut)
+
+    def _on_tab_shortcut(self, forward):
+        if not self.page_view._drawing_line:
+            self.page_view._select_adjacent_line(forward)
+
+    def _on_move_line_shortcut(self, direction):
+        if isinstance(QApplication.focusWidget(), (QLineEdit, QTextEdit)):
+            return
+        self.page_view._move_selected_line(direction)
+
+    def _on_delete_line_shortcut(self):
+        line = self.page_view._selected_obj
+        if isinstance(line, PageTextLine):
+            self._on_delete_line(line)
+
+    def _on_merge_line_shortcut(self):
+        line = self.page_view._selected_obj
+        if isinstance(line, PageTextLine):
+            self._on_merge_line(line)
 
     @property
     def mode(self):
@@ -510,9 +547,8 @@ class MainWindow(QMainWindow):
         # Left: tree view
         self.tree_view = QTreeView()
         self.tree_model = QStandardItemModel()
-        self.tree_model.setHorizontalHeaderLabels(["Page XML"])
         self.tree_view.setModel(self.tree_model)
-        self.tree_view.setHeaderHidden(False)
+        self.tree_view.setHeaderHidden(True)
         self.tree_view.selectionModel().selectionChanged.connect(self._on_tree_selection)
         splitter.addWidget(self.tree_view)
 
@@ -533,6 +569,7 @@ class MainWindow(QMainWindow):
         self.page_view.line_drawn.connect(self._on_line_drawn)
         self.page_view.clean_requested.connect(self._on_clean_requested)
         self.page_view.new_line_requested.connect(self._on_new_line_requested_view)
+        self.page_view.move_line_requested.connect(lambda line, direction: self._on_move_line(line, direction))
         self.page_view.status_message.connect(self.statusBar().showMessage)
         splitter.addWidget(self.properties)
 
@@ -642,7 +679,6 @@ class MainWindow(QMainWindow):
     def _populate_tree(self):
         """Rebuild the QStandardItemModel from the current document."""
         self.tree_model.clear()
-        self.tree_model.setHorizontalHeaderLabels(["Page XML"])
 
         for region in self.doc.regions:
             region_item = QStandardItem(self._region_label(region))
@@ -660,7 +696,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _region_label(r):
-        return f"TextRegion [{r.id[:8]}…]"
+        return f"Region [{r.id[:8]}…]"
 
     @staticmethod
     def _line_label(l, idx):
@@ -693,6 +729,8 @@ class MainWindow(QMainWindow):
             return
         self._current_obj = data_obj
         self._select_in_tree(data_obj)
+        self._select_in_view(data_obj)
+        self._show_handles_for(data_obj)
         self._show_properties(data_obj)
         if self._mode == "text" and isinstance(data_obj, PageTextLine):
             self.page_view.show_line_highlight(data_obj)
@@ -838,6 +876,7 @@ class MainWindow(QMainWindow):
 
     def _select_in_view(self, data_obj):
         """Set the selected state of annotation items matching *data_obj*."""
+        self.page_view._selected_obj = data_obj
         sel_baseline = self.page_view._selected_attr == "baseline"
         for item in self.page_view._annotation_items:
             obj = getattr(item, 'region', None) or getattr(item, 'data_obj', None)

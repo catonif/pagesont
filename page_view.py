@@ -222,6 +222,7 @@ class PageView(QGraphicsView):
     clean_requested = pyqtSignal(object)     # data_obj whose points to clean
     new_line_requested = pyqtSignal()
     status_message = pyqtSignal(str, int)    # message, timeout_ms
+    move_line_requested = pyqtSignal(object, str)  # line, direction ("up"/"down")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -236,6 +237,7 @@ class PageView(QGraphicsView):
         self._all_lines = []          # flattened list of all PageTextLines
         self._press_pos = None        # for text-mode click-detection
         self._selected_attr = None    # "coords", "baseline", or "region" — tracks last-clicked attr type
+        self._selected_obj = None     # currently selected data_obj (region or line), or None
         self.edit_mode = "segmentation"
 
         # Two-phase line drawing state (segmentation mode only)
@@ -256,6 +258,7 @@ class PageView(QGraphicsView):
             QGraphicsView.ViewportAnchor.AnchorUnderMouse
         )
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -272,6 +275,7 @@ class PageView(QGraphicsView):
         self._vertex_handles = []
         self._line_labels = []
         self._text_highlight_item = None
+        self._selected_obj = None
         pixmap = QPixmap(image_path)
         if pixmap.isNull():
             raise RuntimeError(f"Could not load image: {image_path}")
@@ -337,6 +341,7 @@ class PageView(QGraphicsView):
         for it in to_remove:
             self._scene.removeItem(it)
         self._annotation_items = []
+        self._selected_obj = None
         self.load_annotations(doc)
 
     # -----------------------------------------------------------------------
@@ -586,17 +591,45 @@ class PageView(QGraphicsView):
                 self.verticalScrollBar().value() + self.keyboard_span_factor
             )
         elif key == Qt.Key.Key_M and self.edit_mode == "segmentation":
-            sel = self.scene().selectedItems()
-            if sel:
-                item = sel[0]
-                if isinstance(item, (AnnotationItem, RegionItem)):
-                    data_obj = getattr(item, 'region', None) or getattr(item, 'data_obj', None)
-                    if data_obj:
-                        self.clean_requested.emit(data_obj)
+            data_obj = self._selected_obj
+            if data_obj is not None:
+                self.clean_requested.emit(data_obj)
         elif key == Qt.Key.Key_N and self.edit_mode == "segmentation":
             self.new_line_requested.emit()
         else:
             super().keyPressEvent(event)
+
+    def _move_selected_line(self, direction):
+        """
+        Emit move_line_requested for the currently selected text line
+        (Ctrl+Up / Ctrl+Down).
+        """
+        if self.edit_mode != "segmentation":
+            return
+        line = self._selected_obj
+        if line is not None and hasattr(line, 'baseline'):
+            self.move_line_requested.emit(line, direction)
+
+    def _select_adjacent_line(self, forward):
+        """
+        Tab / Shift+Tab: select the next/previous line in document order.
+        With no line selected (or a region selected), jump to the first/last line.
+        """
+        lines = self._all_lines
+        if not lines:
+            return
+        cur = self._selected_obj
+        if cur is not None and hasattr(cur, 'baseline') and cur in lines:
+            idx = lines.index(cur)
+            new_idx = idx + (1 if forward else -1)
+            if new_idx >= len(lines):
+                new_idx = 0
+            target = lines[new_idx]
+        else:
+            target = lines[0] if forward else lines[-1]
+        self._selected_obj = target
+        self._selected_attr = "coords"
+        self.selection_changed.emit(target)
 
     # -----------------------------------------------------------------------
     # Vertex find/delete helpers
@@ -656,10 +689,12 @@ class PageView(QGraphicsView):
           2. Text mode (click-to-select nearest line)
           3. Segmentation mode (select items, drag handles, add vertices, delete vertices)
         """
+
+        scene_pos = self.mapToScene(event.pos())
+
         # --- Phase 1: two-phase line drawing ---
         if self._drawing_line:
             if event.button() == Qt.MouseButton.LeftButton:
-                scene_pos = self.mapToScene(event.pos())
                 if self._draw_phase == "coords":
                     self._draw_coords.append((scene_pos.x(), scene_pos.y()))
                     self._update_draw_display()
@@ -685,28 +720,24 @@ class PageView(QGraphicsView):
             super().mousePressEvent(event)
             return
 
-        # --- Right-click on vertex = delete ---
-        if event.button() == Qt.MouseButton.RightButton:
-            if isinstance(item, VertexHandle) and self.edit_mode == "segmentation":
+        # --- Right-click or alt+left-click on vertex = delete ---
+        if (event.button() == Qt.MouseButton.RightButton) or (event.modifiers() & Qt.KeyboardModifier.AltModifier):
+            if isinstance(item, VertexHandle):
                 self._delete_vertex(item)
             return
 
         # --- Left-click on vertex handle: select/drag ---
         if isinstance(item, VertexHandle):
-            if self.edit_mode == "segmentation":
-                self.setDragMode(QGraphicsView.DragMode.NoDrag)
-                super().mousePressEvent(event)
-                self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-            else:
-                super().mousePressEvent(event)
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            super().mousePressEvent(event)
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
             return
 
         # --- Click on annotation / region item: select, possibly add vertex ---
         if isinstance(item, (AnnotationItem, RegionItem)):
             added = False
             # Click on an already-selected item's border adds a new vertex
-            if self.edit_mode == "segmentation" and item.isSelected():
-                scene_pos = self.mapToScene(event.pos())
+            if item.isSelected():
                 pts = item.points_list()
                 idx = self._find_closest_segment(pts, scene_pos)
                 pts.insert(idx, (scene_pos.x(), scene_pos.y()))
@@ -719,12 +750,15 @@ class PageView(QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             super().mousePressEvent(event)
             self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            if added:
+                return
         else:
             # Click on empty background: deselect everything
             self._remove_handles()
             for it in self._annotation_items:
                 it.setSelected(False)
             super().mousePressEvent(event)
+            self._selected_obj = None
             self.selection_changed.emit(None)
             return
 
@@ -732,6 +766,7 @@ class PageView(QGraphicsView):
         first = self.scene().selectedItems()[0] if self.scene().selectedItems() else None
         if first is None:
             self._remove_handles()
+            self._selected_obj = None
             self.selection_changed.emit(None)
             return
 
@@ -739,15 +774,14 @@ class PageView(QGraphicsView):
         if isinstance(first, RegionItem):
             data_obj = first.region
             self._selected_attr = "region"
-            if self.edit_mode == "segmentation" and not added:
-                self._show_handles(first)
+            self._show_handles(first)
         elif isinstance(first, AnnotationItem):
             data_obj = first.data_obj
             self._selected_attr = first.points_attr
-            if self.edit_mode == "segmentation" and not added:
-                self._show_handles(first)
+            self._show_handles(first)
         else:
             self._remove_handles()
+        self._selected_obj = data_obj
         self.selection_changed.emit(data_obj)
 
     def mouseReleaseEvent(self, event):
@@ -761,6 +795,7 @@ class PageView(QGraphicsView):
             if delta.manhattanLength() < 5:
                 scene_pos = self.mapToScene(event.pos())
                 line = self._find_nearest_line(scene_pos)
+                self._selected_obj = line
                 self.selection_changed.emit(line)
                 super().mouseReleaseEvent(event)
                 self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
