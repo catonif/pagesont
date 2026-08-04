@@ -789,12 +789,24 @@ class MainWindow(QMainWindow):
 
     def _on_delete_line(self, line):
         region = self._region_for_line(line, self.doc.regions)
-        if region is None or not region.delete_line(line):
+        if region is None:
+            return
+        try:
+            idx = region.lines.index(line)
+        except ValueError:
+            return
+        if not region.delete_line(line):
             return
         self.page_view.refresh_annotations(self.doc)
         self._populate_tree()
-        self._select_in_view(region)
-        self._show_properties(region)
+        if region.lines:
+            # Select the previous line (or the new first one if the deleted
+            # line was first), falling back to the region when none remain.
+            target = region.lines[idx - 1 if idx > 0 else 0]
+        else:
+            target = region
+        self._select_in_view(target)
+        self._show_properties(target)
         self.statusBar().showMessage("Line deleted.", 3000)
 
     def _on_new_line_requested(self, region):
