@@ -202,6 +202,18 @@ class PageRegion:
         self.lines.remove(line)
         return True
 
+    def move_line_to(self, line, index):
+        """Move *line* to the 0-based position *index* (clamped)."""
+        if line not in self.lines:
+            return False
+        cur = self.lines.index(line)
+        index = max(0, min(index, len(self.lines) - 1))
+        if index == cur:
+            return False
+        self.lines.remove(line)
+        self.lines.insert(index, line)
+        return True
+
 
 class PageDocument:
     """

@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
-from PyQt6.QtGui import QAction, QIcon, QTextCharFormat, QColor, QGuiApplication, QShortcut, QKeySequence
+from PyQt6.QtGui import QAction, QIcon, QTextCharFormat, QColor, QGuiApplication, QShortcut, QKeySequence, QIntValidator
 from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QTreeView, QWidget, QVBoxLayout,
     QFormLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
@@ -60,6 +60,8 @@ BTN_ICON_MOVEUP = QIcon(str(ICON_DIR / "arrow_upward.svg"))
 BTN_TEXT_MOVEUP = "Move up (Ctrl+Up)"
 BTN_ICON_MOVEDOWN = QIcon(str(ICON_DIR / "arrow_downward.svg"))
 BTN_TEXT_MOVEDOWN = "Move down (Ctrl+Down)"
+BTN_ICON_MOVETO = QIcon(str(ICON_DIR / "low_priority.svg"))
+BTN_TEXT_MOVETO = "Move to index (Ctrl+G)"
 BTN_ICON_DELETELINE = QIcon(str(ICON_DIR / "delete_forever.svg"))
 BTN_TEXT_DELETELINE = "Delete line (Ctrl+K)"
 
@@ -87,6 +89,7 @@ class PropertiesPanel(QWidget):
     proofread_focus_changed = pyqtSignal(object)
     merge_line_requested = pyqtSignal(object)
     move_line_requested = pyqtSignal(object, str)
+    move_to_index_requested = pyqtSignal(object, str)
     delete_line_requested = pyqtSignal(object)
     new_line_requested = pyqtSignal(object)
 
@@ -387,6 +390,22 @@ class PropertiesPanel(QWidget):
         ))
         self.buttons_layout.addWidget(move_widget)
 
+        move_to_widget = QWidget()
+        move_to_layout = QHBoxLayout(move_to_widget)
+        move_to_layout.setContentsMargins(0, 0, 0, 0)
+        self.move_to_edit = QLineEdit()
+        self.move_to_edit.setPlaceholderText("Index")
+        self.move_to_edit.setValidator(QIntValidator(1, 99999))
+        self.move_to_edit.returnPressed.connect(
+            lambda: self.move_to_index_requested.emit(line, self.move_to_edit.text()))
+        move_to_layout.addWidget(self.move_to_edit)
+        move_to_layout.addWidget(create_button(
+            lambda: self.move_to_index_requested.emit(line, self.move_to_edit.text()),
+            BTN_TEXT_MOVETO,
+            BTN_ICON_MOVETO
+        ))
+        self.buttons_layout.addWidget(move_to_widget)
+
         self.buttons_layout.addWidget(create_button(
             lambda: self.delete_line_requested.emit(line),
             BTN_TEXT_DELETELINE,
@@ -474,6 +493,7 @@ class MainWindow(QMainWindow):
         build_shortcut("Ctrl+Down", lambda: self._on_move_line_shortcut("down"))
         build_shortcut("Ctrl+K", self._on_delete_line_shortcut)
         build_shortcut("Ctrl+M", self._on_merge_line_shortcut)
+        build_shortcut("Ctrl+G", self._on_goto_line_shortcut)
 
     def _on_tab_shortcut(self, forward):
         if not self.page_view._drawing_line:
@@ -493,6 +513,16 @@ class MainWindow(QMainWindow):
         line = self.page_view._selected_obj
         if isinstance(line, PageTextLine):
             self._on_merge_line(line)
+
+    def _on_goto_line_shortcut(self):
+        """Ctrl+G: focus the move-to-index field so the target can be typed."""
+        line = self.page_view._selected_obj
+        if not isinstance(line, PageTextLine):
+            self.statusBar().showMessage("Select a line first.", 3000)
+            return
+        self._show_properties(line)
+        self.properties.move_to_edit.setFocus()
+        self.properties.move_to_edit.selectAll()
 
     @property
     def mode(self):
@@ -564,6 +594,7 @@ class MainWindow(QMainWindow):
         self.properties.proofread_focus_changed.connect(self._on_proofread_focus)
         self.properties.merge_line_requested.connect(self._on_merge_line)
         self.properties.move_line_requested.connect(lambda line, direction: self._on_move_line(line, direction))
+        self.properties.move_to_index_requested.connect(lambda line, index: self._on_move_line_to(line, index))
         self.properties.delete_line_requested.connect(self._on_delete_line)
         self.properties.new_line_requested.connect(self._on_new_line_requested)
         self.page_view.line_drawn.connect(self._on_line_drawn)
@@ -786,6 +817,25 @@ class MainWindow(QMainWindow):
         if moved:
             self._refresh_for(line)
             self.statusBar().showMessage(f"Line moved {direction}.", 3000)
+
+    def _on_move_line_to(self, line, index_text):
+        region = self._region_for_line(line, self.doc.regions)
+        if region is None:
+            return
+        try:
+            index = int(index_text)
+        except (TypeError, ValueError):
+            self.statusBar().showMessage("Enter a valid line number.", 3000)
+            return
+        if index < 1 or index > len(region.lines):
+            self.statusBar().showMessage(f"Index out of range (1–{len(region.lines)}).", 3000)
+            return
+        moved = region.move_line_to(line, index - 1)
+        if moved:
+            self._refresh_for(line)
+            self.statusBar().showMessage(f"Line moved to index {index}.", 3000)
+        else:
+            self.statusBar().showMessage("Line already at that index.", 3000)
 
     def _on_delete_line(self, line):
         region = self._region_for_line(line, self.doc.regions)
