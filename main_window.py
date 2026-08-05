@@ -64,6 +64,8 @@ BTN_ICON_MOVETO = QIcon(str(ICON_DIR / "low_priority.svg"))
 BTN_TEXT_MOVETO = "Move to index (Ctrl+G)"
 BTN_ICON_DELETELINE = QIcon(str(ICON_DIR / "delete_forever.svg"))
 BTN_TEXT_DELETELINE = "Delete line (Ctrl+K)"
+BTN_ICON_DELETEREGION = BTN_ICON_DELETELINE
+BTN_TEXT_DELETEREGION = "Delete region"
 
 # ======================================================================
 # PropertiesPanel — right-side sidebar
@@ -91,6 +93,7 @@ class PropertiesPanel(QWidget):
     move_line_requested = pyqtSignal(object, str)
     move_to_index_requested = pyqtSignal(object, str)
     delete_line_requested = pyqtSignal(object)
+    delete_region_requested = pyqtSignal(object)
     new_line_requested = pyqtSignal(object)
 
     def __init__(self, parent=None):
@@ -352,6 +355,13 @@ class PropertiesPanel(QWidget):
             BTN_ICON_NEWLINE
         ))
 
+        self.buttons_layout.addWidget(create_button(
+            lambda: self.delete_region_requested.emit(region),
+            BTN_TEXT_DELETEREGION,
+            BTN_ICON_DELETEREGION,
+            "QPushButton { color: red; }"
+        ))
+
     # ---- Show line form ----------------------------------------------------
 
     def show_line(self, line, region=None):
@@ -596,6 +606,7 @@ class MainWindow(QMainWindow):
         self.properties.move_line_requested.connect(lambda line, direction: self._on_move_line(line, direction))
         self.properties.move_to_index_requested.connect(lambda line, index: self._on_move_line_to(line, index))
         self.properties.delete_line_requested.connect(self._on_delete_line)
+        self.properties.delete_region_requested.connect(self._on_delete_region)
         self.properties.new_line_requested.connect(self._on_new_line_requested)
         self.page_view.line_drawn.connect(self._on_line_drawn)
         self.page_view.clean_requested.connect(self._on_clean_requested)
@@ -858,6 +869,21 @@ class MainWindow(QMainWindow):
         self._select_in_view(target)
         self._show_properties(target)
         self.statusBar().showMessage("Line deleted.", 3000)
+
+    def _on_delete_region(self, region):
+        if region.lines:
+            self.statusBar().showMessage("Region has lines; delete them first.", 3000)
+            return
+        if region not in self.doc.regions:
+            return
+        self.doc.regions.remove(region)
+        self.page_view.refresh_annotations(self.doc)
+        self._populate_tree()
+        self.page_view._remove_handles()
+        self.page_view._selected_obj = None
+        self._current_obj = None
+        self.properties.show_nothing()
+        self.statusBar().showMessage("Region deleted.", 3000)
 
     def _on_new_line_requested(self, region):
         """Enter drawing mode; the view handles click-by-click creation."""
