@@ -254,17 +254,17 @@ class PageDocument:
         """
         Serialize the in-memory model back to XML.
         Strips old <TextRegion> elements from the tree and re-creates them from
-        the model.  All text is NFC-normalized before writing.
+        the model.  All text is NFD-normalized before writing.
         """
         if filepath:
             self.filepath = filepath
         if self.tree is None:
             return
-        # NFC-normalise all text before writing
+        # NFD-normalise all text before writing
         for r in self.regions:
             for l in r.lines:
                 if l.text:
-                    l.text = unicodedata.normalize("NFC", l.text)
+                    l.text = unicodedata.normalize("NFD", l.text)
         root = self.tree.getroot()
         page = root.find(f"{{{PAGE_NS}}}Page")
         if page is None:

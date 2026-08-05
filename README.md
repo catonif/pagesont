@@ -37,4 +37,4 @@ Review and correct OCR output. The proofread panel lists every line with diff hi
 
 ## Data model
 
-Built on PAGE XML 2019-07-15, but only supports display for `TextRegion` and `TextLine`, while words and glyphs are stripped. All text is NFC-normalized on save. Polygons have no enforced winding order.
+Built on PAGE XML 2019-07-15, but only supports display for `TextRegion` and `TextLine`, while words and glyphs are stripped. All text is NFD-normalized on save. Polygons have no enforced winding order.

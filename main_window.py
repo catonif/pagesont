@@ -588,12 +588,12 @@ class MainWindow(QMainWindow):
             self.properties.save_proofread_texts(self.doc)
 
     def _get_plain_text(self):
-        """Collect all line text (NFC-normalised) separated by newlines."""
+        """Collect all line text (NFD-normalised) separated by newlines."""
         self._flush_proofread()
         lines = []
         for l in self.doc.all_lines:
             t = l.text or ""
-            lines.append(unicodedata.normalize("NFC", t))
+            lines.append(unicodedata.normalize("NFD", t))
         return "\n".join(lines)
 
     def copy_plain_text(self):
