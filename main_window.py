@@ -247,6 +247,9 @@ class PropertiesPanel(QWidget):
         if w:
             w['corr'].setFocus()
 
+    def is_first_edit_focused(self):
+        return bool(self._proofread_list) and self._proofread_list[0]['corr'].hasFocus()
+
     def save_proofread_texts(self, model):
         """
         Copy corrected text from the proofread widgets back into the model's
@@ -619,6 +622,11 @@ class MainWindow(QMainWindow):
         self.page_view = PageView()
         self.page_view.selection_changed.connect(self._on_view_selection)
         self.page_view.handle_released.connect(self._on_property_changed)
+        self.page_view.view_resized.connect(self._on_view_resized)
+
+        fit_shortcut = QShortcut(QKeySequence("Ctrl+1"), self)
+        fit_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        fit_shortcut.activated.connect(self.page_view._fit_to_width)
         splitter.addWidget(self.page_view)
 
         # Right: properties panel
@@ -945,6 +953,14 @@ class MainWindow(QMainWindow):
         region.lines.append(line)
         self._refresh_for(line)
         self.statusBar().showMessage("New line created.", 3000)
+
+    def _on_view_resized(self):
+        """In text mode, re-apply fit-width + scroll-to-top when the first
+        corrected-text field is focused (the initial zoom state to preserve)."""
+        if self._mode != "text":
+            return
+        if self.properties.is_first_edit_focused():
+            self.page_view._zoom_to_fit_width()
 
     def _on_proofread_focus(self, line):
         """Proofread cursor moved → highlight the corresponding line on the image."""

@@ -223,6 +223,7 @@ class PageView(QGraphicsView):
     new_line_requested = pyqtSignal()
     status_message = pyqtSignal(str, int)    # message, timeout_ms
     move_line_requested = pyqtSignal(object, str)  # line, direction ("up"/"down")
+    view_resized = pyqtSignal()              # emitted after a resize repaint
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -562,6 +563,12 @@ class PageView(QGraphicsView):
             self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
     def _zoom_to_fit_width(self):
+        """Zoom so the image's width fills the viewport width, then scroll to the top."""
+        self._fit_to_width()
+        self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
+        self.horizontalScrollBar().setValue(self.horizontalScrollBar().minimum())
+
+    def _fit_to_width(self):
         """Zoom so the image's width fills the current viewport width (preserving aspect)."""
         if not self._pixmap_item:
             return
@@ -572,12 +579,10 @@ class PageView(QGraphicsView):
         scale = view_w / img_w
         self.resetTransform()
         self.scale(scale, scale)
-        # Show the top of the image rather than the middle
-        self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
-        self.horizontalScrollBar().setValue(self.horizontalScrollBar().minimum())
 
     def resizeEvent(self, event):
         self.reset_zoom()
+        self.view_resized.emit()
 
     def wheelEvent(self, event):
         factor = self.scroll_wheel_zoom_factor
