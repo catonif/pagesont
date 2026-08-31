@@ -368,6 +368,23 @@ class PageView(QGraphicsView):
             self._scene.removeItem(self._text_highlight_item)
             self._text_highlight_item = None
 
+    def center_on_line(self, line):
+        """
+        Vertically centre the line's coords polygon in the viewport,
+        clamped to the available scroll range (i.e. top/bottom lines land
+        where they can, not necessarily dead-centre).
+        """
+        if not line.coords or len(line.coords) < 2:
+            return
+        xs = [p[0] for p in line.coords]
+        ys = [p[1] for p in line.coords]
+        cx = (min(xs) + max(xs)) / 2
+        cy = (min(ys) + max(ys)) / 2
+        hbar = self.horizontalScrollBar()
+        h_value = hbar.value()
+        self.centerOn(cx, cy)
+        hbar.setValue(h_value)
+
     # -----------------------------------------------------------------------
     # Hit testing
     # -----------------------------------------------------------------------

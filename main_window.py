@@ -220,10 +220,27 @@ class PropertiesPanel(QWidget):
     def hide_proofread(self):
         self.stack.setCurrentIndex(0)
 
+    def _center_on_widget(self, widget):
+        """Scroll the proofread area so *widget* is as close to vertically centred as possible."""
+        if not self._proofread_scroll or not widget:
+            return
+        sb = self._proofread_scroll.verticalScrollBar()
+        view_h = self._proofread_scroll.viewport().height()
+        if view_h <= 0:
+            return
+        content = self._proofread_scroll.widget()
+        y = 0
+        cur = widget
+        while cur is not None and cur is not content:
+            y += cur.pos().y()
+            cur = cur.parentWidget()
+        target = y + widget.height() / 2 - view_h / 2
+        sb.setValue(max(sb.minimum(), min(sb.maximum(), int(target))))
+
     def scroll_to_line(self, line_id):
         w = self._proofread_widgets.get(line_id)
-        if w and self._proofread_scroll:
-            self._proofread_scroll.ensureWidgetVisible(w['ocr'])
+        if w:
+            self._center_on_widget(w['corr'])
 
     def focus_line(self, line_id):
         w = self._proofread_widgets.get(line_id)
@@ -306,7 +323,9 @@ class PropertiesPanel(QWidget):
                     for i, entry in enumerate(self._proofread_list):
                         if entry['corr'] is obj:
                             if 0 <= i + move_amount < len(self._proofread_list):
-                                self._proofread_list[i + move_amount]['corr'].setFocus()
+                                target = self._proofread_list[i + move_amount]['corr']
+                                target.setFocus()
+                                self._center_on_widget(target)
                             return True
         return super().eventFilter(obj, event)
 
@@ -930,6 +949,7 @@ class MainWindow(QMainWindow):
     def _on_proofread_focus(self, line):
         """Proofread cursor moved → highlight the corresponding line on the image."""
         self.page_view.show_line_highlight(line)
+        self.page_view.center_on_line(line)
         self.properties.scroll_to_line(line.id)
 
     def _on_clean_requested(self, data_obj):
