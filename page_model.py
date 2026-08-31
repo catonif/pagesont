@@ -28,7 +28,7 @@ def format_points(points):
     """Inverse of parse_points — writes integer coords without ".0" for whole numbers."""
     return " ".join(f"{int(x)},{int(y)}" for x, y in points)
 
-def clean_points(points, tolerance=5.0):
+def clean_points(points, tolerance=2.5):
     """
     Simplify polygon with the Douglas-Peucker algorithm.
     """

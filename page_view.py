@@ -668,12 +668,24 @@ class PageView(QGraphicsView):
         """
         Delete the vertex controlled by *handle* from its points list.
         Minimum 2 points are preserved.
+
+        For closed polygons (regions and line coords) the first and last
+        points are the same physical vertex — deleting either one removes
+        both and makes the new first point the new last point.
         """
         pts = handle.points_list
         idx = handle.idx
         if len(pts) <= 2:
             return
-        del pts[idx]
+        closed = handle.closed and pts[0] == pts[-1]
+        if closed and idx in (0, len(pts) - 1):
+            # Drop the duplicated closing point and the opening point,
+            # then re-close the polygon at the new first point.
+            del pts[-1]
+            del pts[0]
+            pts.append(pts[0])
+        else:
+            del pts[idx]
         data_obj = getattr(handle.path_item, 'region', None) or getattr(handle.path_item, 'data_obj', None)
         if data_obj:
             self.handle_released.emit(data_obj)
