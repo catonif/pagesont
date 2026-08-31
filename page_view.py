@@ -461,7 +461,7 @@ class PageView(QGraphicsView):
         self._remove_handles()
         self._clean_draw_items()
         self.setCursor(Qt.CursorShape.CrossCursor)
-        self.status_message.emit("Adding new line: click to draw region, right-click to close polygon.", 0)
+        self.status_message.emit("Adding new line: click to draw region, right-click or press the Enter key to close polygon.", 0)
 
     def cancel_drawing(self):
         """Abort drawing and reset state."""
@@ -521,6 +521,12 @@ class PageView(QGraphicsView):
                 self._draw_baseline_item = item
             for pt in self._draw_baseline:
                 self._make_draw_dot(pt, QBrush(QColor("cyan")), 23)
+
+    def _confirm_draw_coords(self):
+        """Close the polygon (first point = last point) and finish the coords phase."""
+        if self._draw_coords and self._draw_coords[0] != self._draw_coords[-1]:
+            self._draw_coords.append(self._draw_coords[0])
+        self._finish_draw_coords()
 
     def _finish_draw_coords(self):
         """Close the coords phase and switch to baseline phase."""
@@ -585,7 +591,7 @@ class PageView(QGraphicsView):
         if self._drawing_line:
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if self._draw_phase == "coords":
-                    self._finish_draw_coords()
+                    self._confirm_draw_coords()
                 elif self._draw_phase == "baseline":
                     self._finish_draw_baseline()
             elif key == Qt.Key.Key_Escape:
@@ -749,9 +755,7 @@ class PageView(QGraphicsView):
                         self._finish_draw_baseline()
             elif event.button() == Qt.MouseButton.RightButton:
                 if self._draw_phase == "coords":
-                    if self._draw_coords and self._draw_coords[0] != self._draw_coords[-1]:
-                        self._draw_coords.append(self._draw_coords[0])
-                    self._finish_draw_coords()
+                    self._confirm_draw_coords()
                 elif self._draw_phase == "baseline":
                     self._finish_draw_baseline()
             return
