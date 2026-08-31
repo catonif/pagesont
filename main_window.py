@@ -205,6 +205,11 @@ class PropertiesPanel(QWidget):
             # Wire up diff-highlighting and height auto-adjust
             corr_edit.textChanged.connect(lambda o=ocr_edit, c=corr_edit: self._highlight_diff(o, c))
             corr_edit.textChanged.connect(lambda e=corr_edit: self._adjust_edit_height(e))
+            corr_edit.textChanged.connect(
+                lambda et=corr_edit: self._update_ocr_visibility(
+                    self._entry_for_widget(et), et.hasFocus()
+                )
+            )
             corr_edit.cursorPositionChanged.connect(lambda l=line: self.proofread_focus_changed.emit(l))
 
         vbox.addStretch()
@@ -318,6 +323,22 @@ class PropertiesPanel(QWidget):
         h = int(doc.size().height()) + edit.frameWidth()
         edit.setFixedHeight(max(h, 28))
 
+    def _entry_for_widget(self, corr_widget):
+        for entry in self._proofread_list:
+            if entry['corr'] is corr_widget:
+                return entry
+        return None
+
+    def _update_ocr_visibility(self, entry, has_focus):
+        """Hide the static OCR box when its text matches the editable one and
+        the editable box is not focused; show it again once focused."""
+        ocr = entry['ocr']
+        corr = entry['corr']
+        if has_focus or corr.hasFocus():
+            ocr.setVisible(True)
+            return
+        ocr.setVisible(corr.toPlainText() != ocr.toPlainText())
+
     # ---- Enter-key navigation in proofread mode ---------------------------
 
     def eventFilter(self, obj, event):
@@ -330,6 +351,12 @@ class PropertiesPanel(QWidget):
             for entry in self._proofread_list:
                 if entry['corr'] is obj:
                     self._focused_line = entry['line']
+                    self._update_ocr_visibility(entry, True)
+                    break
+        elif event.type() == QEvent.Type.FocusOut:
+            for entry in self._proofread_list:
+                if entry['corr'] is obj:
+                    self._update_ocr_visibility(entry, False)
                     break
         if event.type() == QEvent.Type.KeyPress:
             key = event.key()
