@@ -101,6 +101,7 @@ class PropertiesPanel(QWidget):
         self._data_obj = None
         self._proofread_widgets = {}   # line.id -> {'ocr': QTextEdit, 'corr': QTextEdit}
         self._proofread_list = []      # ordered list of line entries
+        self._focused_line = None      # line whose corrected field most recently had focus
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -161,6 +162,7 @@ class PropertiesPanel(QWidget):
         self._data_obj = None
         self._proofread_widgets = {}
         self._proofread_list = []
+        self._focused_line = None
 
         content = QWidget()
         vbox = QVBoxLayout(content)
@@ -250,6 +252,15 @@ class PropertiesPanel(QWidget):
     def is_first_edit_focused(self):
         return bool(self._proofread_list) and self._proofread_list[0]['corr'].hasFocus()
 
+    @property
+    def current_line(self):
+        """The line whose corrected-text field most recently had focus (or the first)."""
+        if self._focused_line is not None:
+            return self._focused_line
+        if self._proofread_list:
+            return self._proofread_list[0]['line']
+        return None
+
     def save_proofread_texts(self, model):
         """
         Copy corrected text from the proofread widgets back into the model's
@@ -313,7 +324,13 @@ class PropertiesPanel(QWidget):
         """
         Enter (without Shift) in a corrected-text field moves focus to the
         next line's corrected field.  Shift+Enter inserts a newline.
+        Also tracks which line's field currently has focus.
         """
+        if event.type() == QEvent.Type.FocusIn:
+            for entry in self._proofread_list:
+                if entry['corr'] is obj:
+                    self._focused_line = entry['line']
+                    break
         if event.type() == QEvent.Type.KeyPress:
             key = event.key()
             if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
@@ -626,7 +643,7 @@ class MainWindow(QMainWindow):
 
         fit_shortcut = QShortcut(QKeySequence("Ctrl+1"), self)
         fit_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
-        fit_shortcut.activated.connect(self.page_view._fit_to_width)
+        fit_shortcut.activated.connect(self._on_fit_width_shortcut)
         splitter.addWidget(self.page_view)
 
         # Right: properties panel
@@ -954,13 +971,21 @@ class MainWindow(QMainWindow):
         self._refresh_for(line)
         self.statusBar().showMessage("New line created.", 3000)
 
-    def _on_view_resized(self):
-        """In text mode, re-apply fit-width + scroll-to-top when the first
-        corrected-text field is focused (the initial zoom state to preserve)."""
+    def _on_fit_width_shortcut(self):
+        """Ctrl+1: fit the image to the viewport width. In text mode, also
+        centre on the currently-focused line's polygon."""
         if self._mode != "text":
             return
-        if self.properties.is_first_edit_focused():
-            self.page_view._zoom_to_fit_width()
+        self.page_view._fit_to_width()
+        line = self.properties.current_line
+        if line is not None:
+            self.page_view.show_line_highlight(line)
+            self.page_view.center_on_line(line)
+
+    def _on_view_resized(self):
+        """On resize, do exactly what Ctrl+1 does: fit to width and, in text
+        mode, centre on the focused corrected-text field's line."""
+        self._on_fit_width_shortcut()
 
     def _on_proofread_focus(self, line):
         """Proofread cursor moved → highlight the corresponding line on the image."""
