@@ -339,7 +339,7 @@ class PageView(QGraphicsView):
                         # Place a number label at the top-left of the coords bbox
                         xs = [p[0] for p in line.coords]
                         ys = [p[1] for p in line.coords]
-                        self._make_label(str(i), min(xs), min(ys), self._line_labels)
+                        self._make_label(str(i), min(xs), (max + min(ys)) / 2, self._line_labels)
 
                     if len(line.baseline) >= 2:
                         bpath = points_to_path(line.baseline)
