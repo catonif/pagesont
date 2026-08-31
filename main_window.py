@@ -213,6 +213,10 @@ class PropertiesPanel(QWidget):
         self._proofread_scroll.setWidget(content)
         self.stack.setCurrentWidget(self._proofread_page)
 
+        # Focus the first editable corrected-text field
+        if self._proofread_list:
+            self._proofread_list[0]['corr'].setFocus()
+
     def hide_proofread(self):
         self.stack.setCurrentIndex(0)
 
@@ -688,6 +692,8 @@ class MainWindow(QMainWindow):
         if self._mode == "text":
             self.tree_view.hide()
             self.properties.show_proofread(self.doc.all_lines)
+            # Text mode: zoom so the image width fills the available width
+            self.page_view._zoom_to_fit_width()
         else:
             self.tree_view.show()
             self.properties.show_nothing()

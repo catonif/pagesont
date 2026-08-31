@@ -538,6 +538,21 @@ class PageView(QGraphicsView):
         if self._pixmap_item:
             self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
+    def _zoom_to_fit_width(self):
+        """Zoom so the image's width fills the current viewport width (preserving aspect)."""
+        if not self._pixmap_item:
+            return
+        view_w = self.viewport().width()
+        img_w = self._pixmap_item.pixmap().width()
+        if not view_w or not img_w:
+            return
+        scale = view_w / img_w
+        self.resetTransform()
+        self.scale(scale, scale)
+        # Show the top of the image rather than the middle
+        self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
+        self.horizontalScrollBar().setValue(self.horizontalScrollBar().minimum())
+
     def resizeEvent(self, event):
         self.reset_zoom()
 
