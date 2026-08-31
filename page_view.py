@@ -12,10 +12,10 @@ Provides:
 """
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap, QColor, QPen, QBrush, QPainterPath, QPainterPathStroker
+from PyQt6.QtGui import QPixmap, QColor, QPen, QBrush, QPainterPath, QPainterPathStroker, QPainter
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsPathItem,
-    QGraphicsItem, QGraphicsEllipseItem, QGraphicsTextItem,
+    QGraphicsItem, QGraphicsEllipseItem, QGraphicsSimpleTextItem,
 )
 
 # ---------------------------------------------------------------------------
@@ -49,6 +49,28 @@ def points_to_path(pts):
         path.lineTo(*p)
     return path
 
+# ---------------------------------------------------------------------------
+# Line-number label (white text with black outline)
+# ---------------------------------------------------------------------------
+
+class OutlinedLabelItem(QGraphicsSimpleTextItem):
+    """White text with a black outline so it stays visible on any background."""
+
+    def __init__(self, text):
+        super().__init__(text)
+        self.white_pen = QPen(QColor("white"), 1.1)
+        self.black_pen = QPen(QColor("black"), 3.0)
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        path = QPainterPath()
+        path.addText(0, 0, self.font(), self.text())
+        painter.save()
+        painter.setPen(self.black_pen)
+        painter.drawPath(path)
+        painter.setPen(self.white_pen)
+        painter.drawPath(path)
+        painter.restore()
 
 # ---------------------------------------------------------------------------
 # Vertex handle (draggable white circle)
@@ -284,9 +306,8 @@ class PageView(QGraphicsView):
         self._scene.addItem(self._pixmap_item)
 
     def _make_label(self, text, x, y, labels_list):
-        """Create a small white text label at (x, y) that ignores view transforms."""
-        lbl = QGraphicsTextItem(text)
-        lbl.setDefaultTextColor(QColor("white"))
+        """Create a small white label with a black outline at (x, y) that ignores view transforms."""
+        lbl = OutlinedLabelItem(text)
         lbl.setZValue(15)
         lbl.setPos(x, y)
         lbl.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
