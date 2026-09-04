@@ -59,6 +59,77 @@ def stitch_polygons(pts_a, pts_b):
 
 
 # ---------------------------------------------------------------------------
+# Sequence helper functions
+# ---------------------------------------------------------------------------
+
+PUA_BASE = 0xE000  # start of the Unicode Private Use Area
+
+
+def encode_sequences(text, sequences):
+    """Replace registered two-character sequences with Private Use Area chars."""
+    if not text or not sequences:
+        return text
+    for i, seq in enumerate(sequences):
+        if not seq:
+            continue
+        text = text.replace(seq, chr(PUA_BASE + i))
+    return text
+
+
+def decode_sequences(text, sequences):
+    """Restore Private Use Area chars back to the registered sequences."""
+    if not text or not sequences:
+        return text
+    for i, seq in enumerate(sequences):
+        if not seq:
+            continue
+        text = text.replace(chr(PUA_BASE + i), seq)
+    return text
+
+
+def disambiguate_sequences(text, sequences, separator):
+    """
+    Insert *separator* between the two chars of registered sequences so that
+    literal occurrences are not encoded as ligatures on the next save.
+    """
+    if not text or not sequences or not separator:
+        return text
+    for seq in sequences:
+        if not seq:
+            continue
+        text = text.replace(seq, seq[0] + separator + seq[1])
+    return text
+
+
+def restore_sequences(text, sequences, separator):
+    """
+    Remove the disambiguation separator again: seq[0]+separator+seq[1] -> seq.
+    """
+    if not text or not sequences or not separator:
+        return text
+    for seq in sequences:
+        if not seq:
+            continue
+        text = text.replace(seq[0] + separator + seq[1], seq)
+    return text
+
+
+def encode_text(text, sequences, separator=""):
+    """
+    Display text -> stored text: bare sequences become PUA chars, and any
+    disambiguation separators are removed so only genuine ligatures stay encoded.
+    """
+    return restore_sequences(encode_sequences(text, sequences), sequences, separator)
+
+
+def decode_text(text, sequences, separator=""):
+    """
+    Stored text -> display text: literal sequences get the separator inserted
+    (so they are not mistaken for ligatures), PUA chars go back to sequences.
+    """
+    return decode_sequences(disambiguate_sequences(text, sequences, separator), sequences)
+
+# ---------------------------------------------------------------------------
 # Data model classes
 # ---------------------------------------------------------------------------
 
@@ -89,7 +160,7 @@ class PageTextLine:
             if u is not None and u.text:
                 self.text = u.text
 
-    def _to_elem(self, parent):
+    def _to_elem(self, parent, sequences=None, separator=""):
         e = ET.SubElement(parent, f"{{{PAGE_NS}}}TextLine")
         if self.id:
             e.set("id", self.id)
@@ -99,7 +170,7 @@ class PageTextLine:
         bl.set("points", format_points(self.baseline))
         te = ET.SubElement(e, f"{{{PAGE_NS}}}TextEquiv")
         u = ET.SubElement(te, f"{{{PAGE_NS}}}Unicode")
-        u.text = self.text
+        u.text = encode_text(self.text, sequences, separator)
         return e
 
 
@@ -135,7 +206,7 @@ class PageRegion:
         for tl in elem.findall(f"{{{PAGE_NS}}}TextLine"):
             self.lines.append(PageTextLine(tl))
 
-    def _to_elem(self, parent):
+    def _to_elem(self, parent, sequences=None, separator=""):
         e = ET.SubElement(parent, f"{{{PAGE_NS}}}TextRegion")
         if self.id:
             e.set("id", self.id)
@@ -144,7 +215,7 @@ class PageRegion:
         c = ET.SubElement(e, f"{{{PAGE_NS}}}Coords")
         c.set("points", format_points(self.coords))
         for tl in self.lines:
-            tl._to_elem(e)
+            tl._to_elem(e, sequences, separator)
         return e
 
     # ---- Region-level operations (move / merge / delete lines) -------------
@@ -228,7 +299,7 @@ class PageDocument:
         self.image_height = 0
         self.regions = []
 
-    def load(self, filepath):
+    def load(self, filepath, sequences=None, separator=""):
         """Parse a PAGE XML file from disk and populate the data model."""
         self.filepath = filepath
         self.tree = ET.parse(filepath)
@@ -242,6 +313,12 @@ class PageDocument:
         self.regions = []
         for r in page.findall(f"{{{PAGE_NS}}}TextRegion"):
             self.regions.append(PageRegion(r))
+        # Restore PUA chars back to sequences and disambiguate literal occurrences
+        if sequences:
+            for r in self.regions:
+                r.text = decode_text(r.text, sequences, separator)
+                for l in r.lines:
+                    l.text = decode_text(l.text, sequences, separator)
 
     def resolve_image_path(self):
         """
@@ -262,11 +339,13 @@ class PageDocument:
         """Flattened list of every PageTextLine across all regions."""
         return [l for r in self.regions for l in r.lines]
 
-    def save(self, filepath=None, apply_nfd=True):
+    def save(self, filepath=None, apply_nfd=True, sequences=None, separator=""):
         """
         Serialize the in-memory model back to XML.
         Strips old <TextRegion> elements from the tree and re-creates them from
         the model.  Text is NFD-normalized before writing if apply_nfd is True.
+        Registered sequences are encoded as Private Use Area chars on write;
+        disambiguation separators are removed so only genuine ligatures stay PUA.
         """
         if filepath:
             self.filepath = filepath
@@ -287,5 +366,5 @@ class PageDocument:
             page.remove(r)
         # Write back from the model
         for r in self.regions:
-            r._to_elem(page)
+            r._to_elem(page, sequences, separator)
         self.tree.write(self.filepath, xml_declaration=True, encoding="UTF-8", pretty_print=True)

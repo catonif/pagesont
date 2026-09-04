@@ -846,7 +846,7 @@ class MainWindow(QMainWindow):
                 return
 
         try:
-            self.doc.load(filepath)
+            self.doc.load(filepath, sequences=self.prefs.sequences, separator=self.prefs.separator)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load XML:\n{e}")
             return
@@ -881,7 +881,7 @@ class MainWindow(QMainWindow):
             self.save_as_file()
         else:
             try:
-                self.doc.save(apply_nfd=self.prefs.apply_nfd)
+                self.doc.save(apply_nfd=self.prefs.apply_nfd, sequences=self.prefs.sequences, separator=self.prefs.separator)
                 self.statusBar().showMessage(f"Saved at {self.doc.filepath}.", 5000)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
@@ -894,7 +894,7 @@ class MainWindow(QMainWindow):
             return
         self._flush_proofread()
         try:
-            self.doc.save(filepath, apply_nfd=self.prefs.apply_nfd)
+            self.doc.save(filepath, apply_nfd=self.prefs.apply_nfd, sequences=self.prefs.sequences, separator=self.prefs.separator)
             self.statusBar().showMessage(f"Saved at {filepath}.", 5000)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")

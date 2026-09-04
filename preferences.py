@@ -19,6 +19,8 @@ class Preferences:
     apply_nfd: bool = True
     hide_duplicate_textedit: bool = True
     simplify_tolerance: float = 2.5
+    separator: str = ""
+    sequences: list = None
 
 
 def config_path(cwd=None):
@@ -44,7 +46,22 @@ def load_preferences(cwd=None):
 
 
 def save_preferences(prefs, cwd=None):
-    """Persist preferences to the cwd config file."""
+    """
+    Persist preferences to the cwd config file.
+
+    Any existing keys the app doesn't manage (e.g. manually-added fields such
+    as "separator") are preserved; only the known preference fields are
+    overwritten with the current values.
+    """
     path = config_path(cwd)
+    existing = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+        if not isinstance(existing, dict):
+            existing = {}
+    except (FileNotFoundError, json.JSONDecodeError, TypeError):
+        existing = {}
+    data = {**existing, **asdict(prefs)}
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(asdict(prefs), f, indent=2)
+        json.dump(data, f, indent=2)
