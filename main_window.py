@@ -20,13 +20,15 @@ from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QTreeView, QWidget, QVBoxLayout,
     QFormLayout, QLabel, QLineEdit, QTextEdit, QPushButton,
     QFileDialog, QMessageBox, QHBoxLayout,
-    QStackedWidget, QScrollArea, QApplication,
+    QStackedWidget, QScrollArea, QApplication, QDialog,
+    QDialogButtonBox, QDoubleSpinBox, QCheckBox, QSpinBox,
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 
 from page_model import PageDocument, PageRegion, PageTextLine
 from page_view import PageView
 from page_model import format_points, parse_points, clean_points
+from preferences import load_preferences, save_preferences, Preferences, config_path
 
 
 # Custom data role for storing model objects in QStandardItem
@@ -174,21 +176,12 @@ class PropertiesPanel(QWidget):
             ocr_edit.setPlainText(line.text)
             ocr_edit.setReadOnly(True)
             ocr_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            ocr_edit.setStyleSheet(
-                "QTextEdit { background-color: #eee; border: 0; padding: 2px; font-family: monospace; }"
-            )
-            ocr_lines = line.text.count('\n') + 1
-            ocr_edit.setFixedHeight(max(ocr_lines * 18 + 6, 28))
             vbox.addWidget(ocr_edit)
 
             # --- Corrected text (editable) ---
             corr_edit = QTextEdit()
             corr_edit.setPlaceholderText("Type corrected text here...")
             corr_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            corr_edit.setFixedHeight(28)
-            corr_edit.setStyleSheet(
-                "QTextEdit { background-color: #fff; border: 0; padding: 2px; font-family: monospace; }"
-            )
             vbox.addWidget(corr_edit)
 
             self._proofread_widgets[line.id] = {
@@ -205,11 +198,6 @@ class PropertiesPanel(QWidget):
             # Wire up diff-highlighting and height auto-adjust
             corr_edit.textChanged.connect(lambda o=ocr_edit, c=corr_edit: self._highlight_diff(o, c))
             corr_edit.textChanged.connect(lambda e=corr_edit: self._adjust_edit_height(e))
-            corr_edit.textChanged.connect(
-                lambda et=corr_edit: self._update_ocr_visibility(
-                    self._entry_for_widget(et), et.hasFocus()
-                )
-            )
             corr_edit.cursorPositionChanged.connect(lambda l=line: self.proofread_focus_changed.emit(l))
 
         vbox.addStretch()
@@ -223,6 +211,29 @@ class PropertiesPanel(QWidget):
         # Focus the first editable corrected-text field
         if self._proofread_list:
             self._proofread_list[0]['corr'].setFocus()
+
+        self.update_proofread()
+
+    def update_proofread(self):
+        """
+        Update the proofread view after settings change.
+        """
+
+        for entry in self._proofread_list:
+            entry["ocr"].setStyleSheet(
+                f"QTextEdit {{ background-color: #eee; border: 0; padding: 2px; font-family: monospace; font-size: {self.font_size}pt; }}"
+            )
+            entry["corr"].setStyleSheet(
+                f"QTextEdit {{ background-color: #fff; border: 0; padding: 2px; font-family: monospace; font-size: {self.font_size}pt; }}"
+            )
+            self._update_ocr_visibility(entry)
+
+        self.adjust_all_heights()
+
+    def adjust_all_heights(self):
+        for entry in self._proofread_list:
+            self._adjust_edit_height(entry["ocr"])
+            self._adjust_edit_height(entry["corr"])
 
     def hide_proofread(self):
         self.stack.setCurrentIndex(0)
@@ -321,20 +332,17 @@ class PropertiesPanel(QWidget):
         doc = edit.document()
         doc.setTextWidth(edit.viewport().width())
         h = int(doc.size().height()) + edit.frameWidth()
-        edit.setFixedHeight(max(h, 28))
+        edit.setFixedHeight(h)
 
-    def _entry_for_widget(self, corr_widget):
-        for entry in self._proofread_list:
-            if entry['corr'] is corr_widget:
-                return entry
-        return None
-
-    def _update_ocr_visibility(self, entry, has_focus):
+    def _update_ocr_visibility(self, entry):
         """Hide the static OCR box when its text matches the editable one and
         the editable box is not focused; show it again once focused."""
+        if not self.hide_duplicate_textedit:
+            entry['ocr'].setVisible(True)
+            return
         ocr = entry['ocr']
         corr = entry['corr']
-        if has_focus or corr.hasFocus():
+        if corr.hasFocus():
             ocr.setVisible(True)
             return
         ocr.setVisible(corr.toPlainText() != ocr.toPlainText())
@@ -351,12 +359,12 @@ class PropertiesPanel(QWidget):
             for entry in self._proofread_list:
                 if entry['corr'] is obj:
                     self._focused_line = entry['line']
-                    self._update_ocr_visibility(entry, True)
+                    self._update_ocr_visibility(entry)
                     break
         elif event.type() == QEvent.Type.FocusOut:
             for entry in self._proofread_list:
                 if entry['corr'] is obj:
-                    self._update_ocr_visibility(entry, False)
+                    self._update_ocr_visibility(entry)
                     break
         if event.type() == QEvent.Type.KeyPress:
             key = event.key()
@@ -533,10 +541,69 @@ class PropertiesPanel(QWidget):
         self.changed.emit(line)
 
     def _clean_coords(self, pts):
-        cleaned = clean_points(pts)
+        cleaned = clean_points(pts, tolerance=self.simplify_tolerance)
         if len(cleaned) != len(pts):
             pts[:] = cleaned
             self.changed.emit(self._data_obj)
+
+
+
+# ======================================================================
+# SettingsDialog — preferences dialog
+# ======================================================================
+
+class SettingsDialog(QDialog):
+    """Dialog to regulate page-editor preferences."""
+
+    def __init__(self, prefs, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+
+        self.font_spin = QSpinBox()
+        self.font_spin.setRange(6, 48)
+        self.font_spin.setValue(prefs.font_size)
+
+        self.nfd_check = QCheckBox("Apply NFD normalization on save")
+        self.nfd_check.setChecked(prefs.apply_nfd)
+
+        self.hide_dup_check = QCheckBox("Hide the OCR text field when it matches corrected text")
+        self.hide_dup_check.setChecked(prefs.hide_duplicate_textedit)
+
+        self.tolerance_spin = QDoubleSpinBox()
+        self.tolerance_spin.setRange(0.0, 100.0)
+        self.tolerance_spin.setDecimals(2)
+        self.tolerance_spin.setSingleStep(0.5)
+        self.tolerance_spin.setValue(prefs.simplify_tolerance)
+
+        self.save_to_config = QCheckBox(
+            "Save these settings to a config file in the current working directory"
+        )
+        self.save_to_config.setChecked(False)
+
+        form = QFormLayout()
+        form.addRow("Font size:", self.font_spin)
+        form.addRow("", self.nfd_check)
+        form.addRow("", self.hide_dup_check)
+        form.addRow("Polygon simplify threshold:", self.tolerance_spin)
+        form.addRow("", self.save_to_config)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+    def build_preferences(self):
+        return Preferences(
+            font_size=self.font_spin.value(),
+            apply_nfd=self.nfd_check.isChecked(),
+            hide_duplicate_textedit=self.hide_dup_check.isChecked(),
+            simplify_tolerance=self.tolerance_spin.value(),
+        )
 
 
 
@@ -554,10 +621,41 @@ class MainWindow(QMainWindow):
         self.doc = PageDocument()
         self._current_obj = None
 
+        # Load preferences from a config file in the cwd if present
+        self.prefs = load_preferences()
+
         self._build_menu()
         self._build_ui()
+        self._apply_preferences()
         if mode == "segmentation":
             self._build_segmentation_shortcuts()
+
+    # ---- Preferences --------------------------------------------------------
+
+    def _apply_preferences(self):
+        """Apply the in-memory preferences to the UI."""
+        self.properties.font_size = self.prefs.font_size
+        self.properties.simplify_tolerance = self.prefs.simplify_tolerance
+        self.properties.hide_duplicate_textedit = self.prefs.hide_duplicate_textedit
+        if self._mode == "text":
+            self.properties.update_proofread()
+
+    def _open_settings(self):
+        dlg = SettingsDialog(self.prefs, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.prefs = dlg.build_preferences()
+            self._apply_preferences()
+            if dlg.save_to_config.isChecked():
+                self._save_config()
+            else:
+                self.statusBar().showMessage("Settings updated.", 3000)
+
+    def _save_config(self):
+        try:
+            save_preferences(self.prefs)
+            self.statusBar().showMessage(f"Settings updated and saved to {config_path()}.", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save settings:\n{e}")
 
     def _build_segmentation_shortcuts(self):
         """Window-wide shortcuts for line navigation / moving, regardless of focus."""
@@ -643,6 +741,12 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        settings_action = QAction("&Settings...", self)
+        settings_action.triggered.connect(self._open_settings)
+        file_menu.addAction(settings_action)
+
+        file_menu.addSeparator()
+
         exit_action = QAction("E&xit", self)
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
@@ -705,12 +809,14 @@ class MainWindow(QMainWindow):
             self.properties.save_proofread_texts(self.doc)
 
     def _get_plain_text(self):
-        """Collect all line text (NFD-normalised) separated by newlines."""
+        """Collect all line text (optionally NFD-normalised) separated by newlines."""
         self._flush_proofread()
         lines = []
         for l in self.doc.all_lines:
             t = l.text or ""
-            lines.append(unicodedata.normalize("NFD", t))
+            if self.prefs.apply_nfd:
+                t = unicodedata.normalize("NFD", t)
+            lines.append(t)
         return "\n".join(lines)
 
     def copy_plain_text(self):
@@ -775,7 +881,7 @@ class MainWindow(QMainWindow):
             self.save_as_file()
         else:
             try:
-                self.doc.save()
+                self.doc.save(apply_nfd=self.prefs.apply_nfd)
                 self.statusBar().showMessage(f"Saved at {self.doc.filepath}.", 5000)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
@@ -788,7 +894,7 @@ class MainWindow(QMainWindow):
             return
         self._flush_proofread()
         try:
-            self.doc.save(filepath)
+            self.doc.save(filepath, apply_nfd=self.prefs.apply_nfd)
             self.statusBar().showMessage(f"Saved at {filepath}.", 5000)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
@@ -1013,6 +1119,7 @@ class MainWindow(QMainWindow):
         """On resize, do exactly what Ctrl+1 does: fit to width and, in text
         mode, centre on the focused corrected-text field's line."""
         self._on_fit_width_shortcut()
+        self.properties.adjust_all_heights()
 
     def _on_proofread_focus(self, line):
         """Proofread cursor moved → highlight the corresponding line on the image."""

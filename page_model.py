@@ -28,7 +28,7 @@ def format_points(points):
     """Inverse of parse_points — writes integer coords without ".0" for whole numbers."""
     return " ".join(f"{int(x)},{int(y)}" for x, y in points)
 
-def clean_points(points, tolerance=2.5):
+def clean_points(points, tolerance):
     """
     Simplify polygon with the Douglas-Peucker algorithm.
     """
@@ -262,21 +262,22 @@ class PageDocument:
         """Flattened list of every PageTextLine across all regions."""
         return [l for r in self.regions for l in r.lines]
 
-    def save(self, filepath=None):
+    def save(self, filepath=None, apply_nfd=True):
         """
         Serialize the in-memory model back to XML.
         Strips old <TextRegion> elements from the tree and re-creates them from
-        the model.  All text is NFD-normalized before writing.
+        the model.  Text is NFD-normalized before writing if apply_nfd is True.
         """
         if filepath:
             self.filepath = filepath
         if self.tree is None:
             return
-        # NFD-normalise all text before writing
-        for r in self.regions:
-            for l in r.lines:
-                if l.text:
-                    l.text = unicodedata.normalize("NFD", l.text)
+        # Optionally NFD-normalise all text before writing
+        if apply_nfd:
+            for r in self.regions:
+                for l in r.lines:
+                    if l.text:
+                        l.text = unicodedata.normalize("NFD", l.text)
         root = self.tree.getroot()
         page = root.find(f"{{{PAGE_NS}}}Page")
         if page is None:
