@@ -360,6 +360,7 @@ class PropertiesPanel(QWidget):
                 if entry['corr'] is obj:
                     self._focused_line = entry['line']
                     self._update_ocr_visibility(entry)
+                    self.proofread_focus_changed.emit(entry['line'])
                     break
         elif event.type() == QEvent.Type.FocusOut:
             for entry in self._proofread_list:
