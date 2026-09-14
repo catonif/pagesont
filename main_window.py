@@ -615,11 +615,11 @@ class MainWindow(QMainWindow):
     def __init__(self, mode="segmentation"):
         super().__init__()
         self._mode = mode
-        self.setWindowTitle("Pagesont — " + ("Fix Segmentation" if mode == "segmentation" else "Check Text"))
         self.resize(1400, 900)
 
         self.doc = PageDocument()
         self._current_obj = None
+        self._update_title()
 
         # Load preferences from a config file in the cwd if present
         self.prefs = load_preferences()
@@ -837,6 +837,13 @@ class MainWindow(QMainWindow):
 
     # ---- File I/O ----------------------------------------------------------
 
+    def _update_title(self):
+        """Refresh the window title, showing the opened file's name if any."""
+        title = "Pagesont — " + ("Fix Segmentation" if self._mode == "segmentation" else "Check Text")
+        if self.doc.filepath:
+            title += f" — {Path(self.doc.filepath).name}"
+        self.setWindowTitle(title)
+
     def open_file(self, filepath=None):
         if filepath is None:
             filepath, _ = QFileDialog.getOpenFileName(
@@ -850,6 +857,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load XML:\n{e}")
             return
+        self._update_title()
 
         # Load the corresponding image
         img_path = self.doc.resolve_image_path()
@@ -882,6 +890,7 @@ class MainWindow(QMainWindow):
         else:
             try:
                 self.doc.save(apply_nfd=self.prefs.apply_nfd, sequences=self.prefs.sequences, separator=self.prefs.separator)
+                self._update_title()
                 self.statusBar().showMessage(f"Saved at {self.doc.filepath}.", 5000)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
@@ -895,6 +904,7 @@ class MainWindow(QMainWindow):
         self._flush_proofread()
         try:
             self.doc.save(filepath, apply_nfd=self.prefs.apply_nfd, sequences=self.prefs.sequences, separator=self.prefs.separator)
+            self._update_title()
             self.statusBar().showMessage(f"Saved at {filepath}.", 5000)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
