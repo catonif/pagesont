@@ -21,6 +21,7 @@ class Preferences:
     simplify_tolerance: float = 2.5
     separator: str = ""
     sequences: list = None
+    save_text_folder: str = ""
 
 
 def config_path(cwd=None):

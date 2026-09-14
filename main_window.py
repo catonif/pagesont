@@ -558,6 +558,7 @@ class SettingsDialog(QDialog):
     def __init__(self, prefs, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
+        self.prefs = prefs
 
         self.font_spin = QSpinBox()
         self.font_spin.setRange(6, 48)
@@ -575,6 +576,9 @@ class SettingsDialog(QDialog):
         self.tolerance_spin.setSingleStep(0.5)
         self.tolerance_spin.setValue(prefs.simplify_tolerance)
 
+        self.folder_edit = QLineEdit(prefs.save_text_folder)
+        self.folder_edit.setPlaceholderText("Ctrl+T exports plain text here")
+
         self.save_to_config = QCheckBox(
             "Save these settings to a config file in the current working directory"
         )
@@ -585,6 +589,7 @@ class SettingsDialog(QDialog):
         form.addRow("", self.nfd_check)
         form.addRow("", self.hide_dup_check)
         form.addRow("Polygon simplify threshold:", self.tolerance_spin)
+        form.addRow("Save text folder:", self.folder_edit)
         form.addRow("", self.save_to_config)
 
         buttons = QDialogButtonBox(
@@ -603,6 +608,9 @@ class SettingsDialog(QDialog):
             apply_nfd=self.nfd_check.isChecked(),
             hide_duplicate_textedit=self.hide_dup_check.isChecked(),
             simplify_tolerance=self.tolerance_spin.value(),
+            separator=self.prefs.separator,
+            sequences=self.prefs.sequences,
+            save_text_folder=self.folder_edit.text().strip(),
         )
 
 
@@ -828,9 +836,16 @@ class MainWindow(QMainWindow):
     def export_plain_text(self):
         if self.doc is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export Plain Text", "", "Text files (*.txt)")
-        if not path:
-            return
+        # If a save-text folder is configured, derive the path automatically:
+        #   <cwd>/<folder>/<input filename without .xml>.txt
+        if self.prefs.save_text_folder and self.doc.filepath:
+            folder = Path.cwd() / self.prefs.save_text_folder
+            folder.mkdir(parents=True, exist_ok=True)
+            path = str(folder / (Path(self.doc.filepath).stem + ".txt"))
+        else:
+            path, _ = QFileDialog.getSaveFileName(self, "Export Plain Text", "", "Text files (*.txt)")
+            if not path:
+                return
         with open(path, "w", encoding="utf-8") as f:
             f.write(self._get_plain_text())
         self.statusBar().showMessage(f"Plain text exported to {path}.", 5000)
