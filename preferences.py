@@ -16,7 +16,7 @@ CONFIG_FILENAME = "pagesont-config.json"
 @dataclass
 class Preferences:
     font_size: int = 10
-    apply_nfd: bool = True
+    normalisation: str = "None"
     hide_duplicate_textedit: bool = True
     simplify_tolerance: float = 2.5
     separator: str = ""

@@ -65,61 +65,18 @@ def stitch_polygons(pts_a, pts_b):
 PUA_BASE = 0xE000  # start of the Unicode Private Use Area
 
 
-def encode_sequences(text, sequences):
-    """Replace registered two-character sequences with Private Use Area chars."""
-    if not text or not sequences:
-        return text
-    for i, seq in enumerate(sequences):
-        if not seq:
-            continue
-        text = text.replace(seq, chr(PUA_BASE + i))
-    return text
-
-
-def decode_sequences(text, sequences):
-    """Restore Private Use Area chars back to the registered sequences."""
-    if not text or not sequences:
-        return text
-    for i, seq in enumerate(sequences):
-        if not seq:
-            continue
-        text = text.replace(chr(PUA_BASE + i), seq)
-    return text
-
-
-def disambiguate_sequences(text, sequences, separator):
-    """
-    Insert *separator* between the two chars of registered sequences so that
-    literal occurrences are not encoded as ligatures on the next save.
-    """
-    if not text or not sequences or not separator:
-        return text
-    for seq in sequences:
-        if not seq:
-            continue
-        text = text.replace(seq, seq[0] + separator + seq[1])
-    return text
-
-
-def restore_sequences(text, sequences, separator):
-    """
-    Remove the disambiguation separator again: seq[0]+separator+seq[1] -> seq.
-    """
-    if not text or not sequences or not separator:
-        return text
-    for seq in sequences:
-        if not seq:
-            continue
-        text = text.replace(seq[0] + separator + seq[1], seq)
-    return text
-
-
-def encode_text(text, sequences, separator=""):
+def encode_text(text, sequences, separator):
     """
     Display text -> stored text: bare sequences become PUA chars, and any
     disambiguation separators are removed so only genuine ligatures stay encoded.
     """
-    return restore_sequences(encode_sequences(text, sequences), sequences, separator)
+    if not text:
+        return text
+    if sequences and separator:
+        for i, seq in enumerate(sequences):
+            text = text.replace(seq, chr(PUA_BASE + i))
+            text = text.replace(seq[0] + separator + seq[1], seq)
+    return text
 
 
 def decode_text(text, sequences, separator=""):
@@ -127,7 +84,13 @@ def decode_text(text, sequences, separator=""):
     Stored text -> display text: literal sequences get the separator inserted
     (so they are not mistaken for ligatures), PUA chars go back to sequences.
     """
-    return decode_sequences(disambiguate_sequences(text, sequences, separator), sequences)
+    if not text:
+        return text
+    if sequences and separator:
+        for i, seq in enumerate(sequences):
+            text = text.replace(seq, seq[0] + separator + seq[1])
+            text = text.replace(chr(PUA_BASE + i), seq)
+    return text
 
 # ---------------------------------------------------------------------------
 # Data model classes
@@ -339,11 +302,11 @@ class PageDocument:
         """Flattened list of every PageTextLine across all regions."""
         return [l for r in self.regions for l in r.lines]
 
-    def save(self, filepath=None, apply_nfd=True, sequences=None, separator=""):
+    def save(self, filepath=None, normalisation="None", sequences=None, separator=""):
         """
         Serialize the in-memory model back to XML.
         Strips old <TextRegion> elements from the tree and re-creates them from
-        the model.  Text is NFD-normalized before writing if apply_nfd is True.
+        the model.  Text is normalized before writing according to the settings.
         Registered sequences are encoded as Private Use Area chars on write;
         disambiguation separators are removed so only genuine ligatures stay PUA.
         """
@@ -351,12 +314,12 @@ class PageDocument:
             self.filepath = filepath
         if self.tree is None:
             return
-        # Optionally NFD-normalise all text before writing
-        if apply_nfd:
+        # Optionally normalise all text before writing
+        if normalisation != "None":
             for r in self.regions:
                 for l in r.lines:
                     if l.text:
-                        l.text = unicodedata.normalize("NFD", l.text)
+                        l.text = unicodedata.normalize(normalisation, l.text)
         root = self.tree.getroot()
         page = root.find(f"{{{PAGE_NS}}}Page")
         if page is None:

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QHBoxLayout,
     QStackedWidget, QScrollArea, QApplication, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QCheckBox, QSpinBox,
+    QComboBox,
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 
@@ -196,6 +197,7 @@ class PropertiesPanel(QWidget):
             corr_edit.installEventFilter(self)
 
             # Wire up diff-highlighting and height auto-adjust
+            corr_edit.textChanged.connect(lambda e=corr_edit: self._normalise_content(e, self.prefs))
             corr_edit.textChanged.connect(lambda o=ocr_edit, c=corr_edit: self._highlight_diff(o, c))
             corr_edit.textChanged.connect(lambda e=corr_edit: self._adjust_edit_height(e))
             corr_edit.cursorPositionChanged.connect(lambda l=line: self.proofread_focus_changed.emit(l))
@@ -333,6 +335,23 @@ class PropertiesPanel(QWidget):
         doc.setTextWidth(edit.viewport().width())
         h = int(doc.size().height()) + edit.frameWidth()
         edit.setFixedHeight(h)
+
+    def _normalise_content(self, edit, prefs):
+        """Applies Unicode normalisation to the content of a text edit."""
+        if prefs.normalisation != "None":
+            text = edit.toPlainText()
+            normalised_text = unicodedata.normalize(prefs.normalisation, text)
+            if text != normalised_text:
+                cursor_pos = edit.textCursor().position()
+                text_before = text[:cursor_pos]
+                normalised_before = unicodedata.normalize(prefs.normalisation, text_before)
+                new_cursor_pos = len(normalised_before)
+                edit.blockSignals(True)
+                edit.setText(normalised_text)
+                edit.blockSignals(False)
+                cursor = edit.textCursor()
+                cursor.setPosition(new_cursor_pos)
+                edit.setTextCursor(cursor)
 
     def _update_ocr_visibility(self, entry):
         """Hide the static OCR box when its text matches the editable one and
@@ -565,8 +584,9 @@ class SettingsDialog(QDialog):
         self.font_spin.setRange(6, 48)
         self.font_spin.setValue(prefs.font_size)
 
-        self.nfd_check = QCheckBox("Apply NFD normalization on save")
-        self.nfd_check.setChecked(prefs.apply_nfd)
+        self.normalisation_dropdown = QComboBox()
+        self.normalisation_dropdown.addItems(["None", "NFD", "NFC"])
+        self.normalisation_dropdown.setCurrentText(prefs.normalisation)
 
         self.hide_dup_check = QCheckBox("Hide the OCR text field when it matches corrected text")
         self.hide_dup_check.setChecked(prefs.hide_duplicate_textedit)
@@ -587,7 +607,7 @@ class SettingsDialog(QDialog):
 
         form = QFormLayout()
         form.addRow("Font size:", self.font_spin)
-        form.addRow("", self.nfd_check)
+        form.addRow("Unicode normalisation:", self.normalisation_dropdown)
         form.addRow("", self.hide_dup_check)
         form.addRow("Polygon simplify threshold:", self.tolerance_spin)
         form.addRow("Save text folder:", self.folder_edit)
@@ -606,7 +626,7 @@ class SettingsDialog(QDialog):
     def build_preferences(self):
         return Preferences(
             font_size=self.font_spin.value(),
-            apply_nfd=self.nfd_check.isChecked(),
+            normalisation=self.normalisation_dropdown.currentText(),
             hide_duplicate_textedit=self.hide_dup_check.isChecked(),
             simplify_tolerance=self.tolerance_spin.value(),
             separator=self.prefs.separator,
@@ -646,6 +666,8 @@ class MainWindow(QMainWindow):
         self.properties.font_size = self.prefs.font_size
         self.properties.simplify_tolerance = self.prefs.simplify_tolerance
         self.properties.hide_duplicate_textedit = self.prefs.hide_duplicate_textedit
+        # self.properties.normalisation = self.prefs.normalisation
+        self.properties.prefs = self.prefs
         if self._mode == "text":
             self.properties.update_proofread()
 
@@ -818,13 +840,13 @@ class MainWindow(QMainWindow):
             self.properties.save_proofread_texts(self.doc)
 
     def _get_plain_text(self):
-        """Collect all line text (optionally NFD-normalised) separated by newlines."""
+        """Collect all line text (optionally normalised) separated by newlines."""
         self._flush_proofread()
         lines = []
         for l in self.doc.all_lines:
             t = l.text or ""
-            if self.prefs.apply_nfd:
-                t = unicodedata.normalize("NFD", t)
+            if self.prefs.normalisation != "None":
+                t = unicodedata.normalize(self.prefs.normalisation, t)
             lines.append(t)
         return "\n".join(lines)
 
@@ -899,17 +921,20 @@ class MainWindow(QMainWindow):
             self.tree_view.show()
             self.properties.show_nothing()
 
-    def save_file(self):
+    def save_common(self, filepath):
         self._flush_proofread()
+        try:
+            self.doc.save(filepath, normalisation=self.prefs.normalisation, sequences=self.prefs.sequences, separator=self.prefs.separator)
+            self._update_title()
+            self.statusBar().showMessage(f"Saved at {filepath}.", 5000)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
+
+    def save_file(self):
         if not self.doc.filepath:
             self.save_as_file()
         else:
-            try:
-                self.doc.save(apply_nfd=self.prefs.apply_nfd, sequences=self.prefs.sequences, separator=self.prefs.separator)
-                self._update_title()
-                self.statusBar().showMessage(f"Saved at {self.doc.filepath}.", 5000)
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
+            self.save_common(self.doc.filepath)
 
     def save_as_file(self):
         filepath, _ = QFileDialog.getSaveFileName(
@@ -917,13 +942,7 @@ class MainWindow(QMainWindow):
         )
         if not filepath:
             return
-        self._flush_proofread()
-        try:
-            self.doc.save(filepath, apply_nfd=self.prefs.apply_nfd, sequences=self.prefs.sequences, separator=self.prefs.separator)
-            self._update_title()
-            self.statusBar().showMessage(f"Saved at {filepath}.", 5000)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save:\n{e}")
+        self.save_common(filepath)
 
     # ---- Tree population ---------------------------------------------------
 
