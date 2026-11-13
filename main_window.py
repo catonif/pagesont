@@ -642,14 +642,17 @@ class SettingsDialog(QDialog):
         )
         self.save_to_config.setChecked(False)
 
-        form = QFormLayout()
-        form.addRow("Font size:", self.font_spin)
-        form.addRow("Unicode normalisation:", self.normalisation_dropdown)
-        form.addRow("", self.hide_dup_check)
-        form.addRow("Polygon simplify threshold:", self.tolerance_spin)
-        form.addRow("", self.simplify_on_open_check)
-        form.addRow("Save text folder:", self.folder_edit)
-        form.addRow("", self.save_to_config)
+        seg_header = QLabel("<b>Segmentation options</b>")
+        seg_form = QFormLayout()
+        seg_form.addRow("Polygon simplify threshold:", self.tolerance_spin)
+        seg_form.addRow("", self.simplify_on_open_check)
+
+        text_header = QLabel("<b>Check text options</b>")
+        text_form = QFormLayout()
+        text_form.addRow("Unicode normalisation:", self.normalisation_dropdown)
+        text_form.addRow("Save text folder:", self.folder_edit)
+        text_form.addRow("Font size:", self.font_spin)
+        text_form.addRow("", self.hide_dup_check)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -658,7 +661,15 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(8)
+        layout.addWidget(seg_header)
+        layout.addLayout(seg_form)
+        layout.addSpacing(8)
+        layout.addWidget(text_header)
+        layout.addLayout(text_form)
+        layout.addSpacing(8)
+        layout.addWidget(self.save_to_config)
         layout.addWidget(buttons)
 
     def build_preferences(self):
