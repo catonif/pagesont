@@ -19,6 +19,7 @@ class Preferences:
     normalisation: str = "None"
     hide_duplicate_textedit: bool = True
     simplify_tolerance: float = 2.5
+    simplify_on_open: bool = False
     separator: str = ""
     sequences: list = None
     save_text_folder: str = ""

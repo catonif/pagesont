@@ -629,6 +629,11 @@ class SettingsDialog(QDialog):
         self.tolerance_spin.setSingleStep(0.5)
         self.tolerance_spin.setValue(prefs.simplify_tolerance)
 
+        self.simplify_on_open_check = QCheckBox(
+            "Simplify all line polygons when a document is opened"
+        )
+        self.simplify_on_open_check.setChecked(prefs.simplify_on_open)
+
         self.folder_edit = QLineEdit(prefs.save_text_folder)
         self.folder_edit.setPlaceholderText("Ctrl+T exports plain text here")
 
@@ -642,6 +647,7 @@ class SettingsDialog(QDialog):
         form.addRow("Unicode normalisation:", self.normalisation_dropdown)
         form.addRow("", self.hide_dup_check)
         form.addRow("Polygon simplify threshold:", self.tolerance_spin)
+        form.addRow("", self.simplify_on_open_check)
         form.addRow("Save text folder:", self.folder_edit)
         form.addRow("", self.save_to_config)
 
@@ -661,6 +667,7 @@ class SettingsDialog(QDialog):
             normalisation=self.normalisation_dropdown.currentText(),
             hide_duplicate_textedit=self.hide_dup_check.isChecked(),
             simplify_tolerance=self.tolerance_spin.value(),
+            simplify_on_open=self.simplify_on_open_check.isChecked(),
             separator=self.prefs.separator,
             sequences=self.prefs.sequences,
             save_text_folder=self.folder_edit.text().strip(),
@@ -819,16 +826,16 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        settings_action = QAction("&Settings...", self)
-        settings_action.triggered.connect(self._open_settings)
-        file_menu.addAction(settings_action)
-
-        file_menu.addSeparator()
-
         exit_action = QAction("E&xit", self)
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
+
+        edit_menu = menu.addMenu("&Preferences")
+        settings_action = QAction("&Settings...", self)
+        settings_action.setShortcut("Ctrl+,")
+        settings_action.triggered.connect(self._open_settings)
+        edit_menu.addAction(settings_action)
 
     # ---- UI layout ---------------------------------------------------------
 
@@ -947,6 +954,23 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to load XML:\n{e}")
             return
         self._update_title()
+
+        # Optionally simplify every line polygon as soon as the file is opened
+        # (only in segmentation mode, where polygons are edited)
+        if self.prefs.simplify_on_open and self._mode == "segmentation":
+            changed = False
+            for line in self.doc.all_lines:
+                if len(line.coords) < 3:
+                    continue
+                try:
+                    cleaned = clean_points(line.coords, tolerance=self.prefs.simplify_tolerance)
+                except Exception:
+                    continue
+                if len(cleaned) != len(line.coords):
+                    line.coords[:] = cleaned
+                    changed = True
+            if changed:
+                self.statusBar().showMessage("Simplified line polygons.", 3000)
 
         # Load the corresponding image
         img_path = self.doc.resolve_image_path()
