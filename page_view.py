@@ -241,8 +241,10 @@ class PageView(QGraphicsView):
     selection_changed = pyqtSignal(object)
     handle_released = pyqtSignal(object)
     line_drawn = pyqtSignal(object, object)  # coords, baseline
+    region_drawn = pyqtSignal(object)        # coords
     clean_requested = pyqtSignal(object)     # data_obj whose points to clean
     new_line_requested = pyqtSignal()
+    new_region_requested = pyqtSignal()
     status_message = pyqtSignal(str, int)    # message, timeout_ms
     move_line_requested = pyqtSignal(object, str)  # line, direction ("up"/"down")
     view_resized = pyqtSignal()              # emitted after a resize repaint
@@ -265,6 +267,7 @@ class PageView(QGraphicsView):
 
         # Two-phase line drawing state (segmentation mode only)
         self._drawing_line = False
+        self._drawing_region = False
         self._draw_phase = None       # "coords" or "baseline"
         self._draw_coords = []
         self._draw_baseline = []
@@ -477,6 +480,7 @@ class PageView(QGraphicsView):
     def start_drawing_line(self):
         """Enter drawing mode: first phase collects coords, second phase baseline."""
         self._drawing_line = True
+        self._drawing_region = False
         self._draw_phase = "coords"
         self._draw_coords = []
         self._draw_baseline = []
@@ -485,9 +489,22 @@ class PageView(QGraphicsView):
         self.setCursor(Qt.CursorShape.CrossCursor)
         self.status_message.emit("Adding new line: click to draw region, right-click or press the Enter key to close polygon.", 0)
 
+    def start_drawing_region(self):
+        """Enter drawing mode for a new region: collect the polygon coords only."""
+        self._drawing_line = True
+        self._drawing_region = True
+        self._draw_phase = "coords"
+        self._draw_coords = []
+        self._draw_baseline = []
+        self._remove_handles()
+        self._clean_draw_items()
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self.status_message.emit("Adding new region: click to draw region, right-click or press the Enter key to close polygon.", 0)
+
     def cancel_drawing(self):
         """Abort drawing and reset state."""
         self._drawing_line = False
+        self._drawing_region = False
         self._draw_phase = None
         self._draw_coords = []
         self._draw_baseline = []
@@ -548,7 +565,25 @@ class PageView(QGraphicsView):
         """Close the polygon (first point = last point) and finish the coords phase."""
         if self._draw_coords and self._draw_coords[0] != self._draw_coords[-1]:
             self._draw_coords.append(self._draw_coords[0])
-        self._finish_draw_coords()
+        if self._drawing_region:
+            self._finish_draw_region()
+        else:
+            self._finish_draw_coords()
+
+    def _finish_draw_region(self):
+        """Finish drawing a region: emit region_drawn signal with its coords."""
+        if len(self._draw_coords) < 3:
+            self.cancel_drawing()
+            return
+        self._drawing_line = False
+        self._drawing_region = False
+        self._draw_phase = None
+        self._clean_draw_items()
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        coords = list(self._draw_coords)
+        self._draw_coords = []
+        self._draw_baseline = []
+        self.region_drawn.emit(coords)
 
     def _finish_draw_coords(self):
         """Close the coords phase and switch to baseline phase."""
@@ -659,7 +694,10 @@ class PageView(QGraphicsView):
             if data_obj is not None:
                 self.clean_requested.emit(data_obj)
         elif key == Qt.Key.Key_N and self.edit_mode == "segmentation":
-            self.new_line_requested.emit()
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self.new_region_requested.emit()
+            else:
+                self.new_line_requested.emit()
         else:
             super().keyPressEvent(event)
 

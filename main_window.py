@@ -57,12 +57,16 @@ BTN_ICON_SIMPLIFY = QIcon(str(ICON_DIR / "circles_ext.svg"))
 BTN_TEXT_SIMPLIFY = "Simplify polygon (M)"
 BTN_ICON_NEWLINE = QIcon(str(ICON_DIR / "variable_add.svg"))
 BTN_TEXT_NEWLINE = "New line (N)"
+BTN_ICON_NEWREGION = QIcon(str(ICON_DIR / "post_add.svg"))
+BTN_TEXT_NEWREGION = "New region (Shift+N)"
 BTN_ICON_MERGELINES = QIcon(str(ICON_DIR / "cell_merge.svg"))
 BTN_TEXT_MERGELINES = "Merge with next line (Ctrl+M)"
 BTN_ICON_MOVEUP = QIcon(str(ICON_DIR / "arrow_upward.svg"))
 BTN_TEXT_MOVEUP = "Move up (Ctrl+Up)"
 BTN_ICON_MOVEDOWN = QIcon(str(ICON_DIR / "arrow_downward.svg"))
 BTN_TEXT_MOVEDOWN = "Move down (Ctrl+Down)"
+BTN_TEXT_MOVEREGIONUP = "Move up (Ctrl+Shift+Up)"
+BTN_TEXT_MOVEREGIONDOWN = "Move down (Ctrl+Shift+Down)"
 BTN_ICON_MOVETO = QIcon(str(ICON_DIR / "low_priority.svg"))
 BTN_TEXT_MOVETO = "Move to index (Ctrl+G)"
 BTN_ICON_DELETELINE = QIcon(str(ICON_DIR / "delete_forever.svg"))
@@ -94,10 +98,12 @@ class PropertiesPanel(QWidget):
     proofread_focus_changed = pyqtSignal(object)
     merge_line_requested = pyqtSignal(object)
     move_line_requested = pyqtSignal(object, str)
+    move_region_requested = pyqtSignal(object, str)
     move_to_index_requested = pyqtSignal(object, str)
     delete_line_requested = pyqtSignal(object)
     delete_region_requested = pyqtSignal(object)
     new_line_requested = pyqtSignal(object)
+    new_region_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -447,10 +453,31 @@ class PropertiesPanel(QWidget):
             BTN_ICON_SIMPLIFY
         ))
 
+        move_widget = QWidget()
+        move_layout = QHBoxLayout(move_widget)
+        move_layout.setContentsMargins(0, 0, 0, 0)
+        move_layout.addWidget(create_button(
+            lambda: self.move_region_requested.emit(region, "up"),
+            BTN_TEXT_MOVEREGIONUP,
+            BTN_ICON_MOVEUP
+        ))
+        move_layout.addWidget(create_button(
+            lambda: self.move_region_requested.emit(region, "down"),
+            BTN_TEXT_MOVEREGIONDOWN,
+            BTN_ICON_MOVEDOWN
+        ))
+        self.buttons_layout.addWidget(move_widget)
+
         self.buttons_layout.addWidget(create_button(
             lambda: self.new_line_requested.emit(region),
             BTN_TEXT_NEWLINE,
             BTN_ICON_NEWLINE
+        ))
+
+        self.buttons_layout.addWidget(create_button(
+            lambda: self.new_region_requested.emit(),
+            BTN_TEXT_NEWREGION,
+            BTN_ICON_NEWREGION
         ))
 
         self.buttons_layout.addWidget(create_button(
@@ -531,6 +558,11 @@ class PropertiesPanel(QWidget):
     def show_nothing(self):
         self.stack.setCurrentIndex(0)
         self._clear()
+        self.buttons_layout.addWidget(create_button(
+            lambda: self.new_region_requested.emit(),
+            BTN_TEXT_NEWREGION,
+            BTN_ICON_NEWREGION
+        ))
 
     # ---- Property setters (called from form editing) -----------------------
 
@@ -700,7 +732,10 @@ class MainWindow(QMainWindow):
         build_shortcut("Shift+Tab", lambda: self._on_tab_shortcut(False))
         build_shortcut("Ctrl+Up", lambda: self._on_move_line_shortcut("up"))
         build_shortcut("Ctrl+Down", lambda: self._on_move_line_shortcut("down"))
+        build_shortcut("Ctrl+Shift+Up", lambda: self._on_move_region_shortcut("up"))
+        build_shortcut("Ctrl+Shift+Down", lambda: self._on_move_region_shortcut("down"))
         build_shortcut("Ctrl+K", self._on_delete_line_shortcut)
+        build_shortcut("Ctrl+Shift+K", self._on_delete_region_shortcut)
         build_shortcut("Ctrl+M", self._on_merge_line_shortcut)
         build_shortcut("Ctrl+G", self._on_goto_line_shortcut)
 
@@ -713,10 +748,22 @@ class MainWindow(QMainWindow):
             return
         self.page_view._move_selected_line(direction)
 
+    def _on_move_region_shortcut(self, direction):
+        if isinstance(QApplication.focusWidget(), (QLineEdit, QTextEdit)):
+            return
+        region = self.page_view._selected_obj
+        if isinstance(region, PageRegion):
+            self._on_move_region(region, direction)
+
     def _on_delete_line_shortcut(self):
         line = self.page_view._selected_obj
         if isinstance(line, PageTextLine):
             self._on_delete_line(line)
+
+    def _on_delete_region_shortcut(self):
+        region = self.page_view._selected_obj
+        if isinstance(region, PageRegion):
+            self._on_delete_region(region)
 
     def _on_merge_line_shortcut(self):
         line = self.page_view._selected_obj
@@ -814,13 +861,17 @@ class MainWindow(QMainWindow):
         self.properties.proofread_focus_changed.connect(self._on_proofread_focus)
         self.properties.merge_line_requested.connect(self._on_merge_line)
         self.properties.move_line_requested.connect(lambda line, direction: self._on_move_line(line, direction))
+        self.properties.move_region_requested.connect(lambda region, direction: self._on_move_region(region, direction))
         self.properties.move_to_index_requested.connect(lambda line, index: self._on_move_line_to(line, index))
         self.properties.delete_line_requested.connect(self._on_delete_line)
         self.properties.delete_region_requested.connect(self._on_delete_region)
         self.properties.new_line_requested.connect(self._on_new_line_requested)
+        self.properties.new_region_requested.connect(self._on_new_region_requested)
         self.page_view.line_drawn.connect(self._on_line_drawn)
+        self.page_view.region_drawn.connect(self._on_region_drawn)
         self.page_view.clean_requested.connect(self._on_clean_requested)
         self.page_view.new_line_requested.connect(self._on_new_line_requested_view)
+        self.page_view.new_region_requested.connect(self._on_new_region_requested)
         self.page_view.move_line_requested.connect(lambda line, direction: self._on_move_line(line, direction))
         self.page_view.status_message.connect(self.statusBar().showMessage)
         splitter.addWidget(self.properties)
@@ -1057,6 +1108,11 @@ class MainWindow(QMainWindow):
             self._refresh_for(line)
             self.statusBar().showMessage(f"Line moved {direction}.", 3000)
 
+    def _on_move_region(self, region, direction):
+        if self.doc.move_region(region, direction):
+            self._refresh_for(region)
+            self.statusBar().showMessage(f"Region moved {direction}.", 3000)
+
     def _on_move_line_to(self, line, index_text):
         region = self._region_for_line(line, self.doc.regions)
         if region is None:
@@ -1117,6 +1173,20 @@ class MainWindow(QMainWindow):
         """Enter drawing mode; the view handles click-by-click creation."""
         self._current_obj = region
         self.page_view.start_drawing_line()
+
+    def _on_new_region_requested(self):
+        """Enter drawing mode for a new text region (polygon only)."""
+        self._current_obj = None
+        self.page_view.start_drawing_region()
+
+    def _on_region_drawn(self, coords):
+        """Callback from PageView when the user finishes drawing a new region."""
+        region = PageRegion()
+        region.id = f"_{uuid.uuid4()}"
+        region.coords = coords
+        self.doc.regions.append(region)
+        self._refresh_for(region)
+        self.statusBar().showMessage("New region created.", 3000)
 
     def _on_new_line_requested_view(self):
         region = None

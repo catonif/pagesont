@@ -262,6 +262,25 @@ class PageDocument:
         self.image_height = 0
         self.regions = []
 
+    def move_region(self, region, direction):
+        """Swap *region* with the following or preceding region in the list.
+
+        *direction*: "up" or "down"
+        """
+        if region not in self.regions:
+            return False
+        idx = self.regions.index(region)
+        if direction == "up":
+            new_idx = idx - 1
+        elif direction == "down":
+            new_idx = idx + 1
+        else:
+            raise ValueError(f"Unsupported direction {direction}.")
+        if not (0 <= new_idx < len(self.regions)):
+            return False
+        self.regions[idx], self.regions[new_idx] = self.regions[new_idx], self.regions[idx]
+        return True
+
     def load(self, filepath, sequences=None, separator=""):
         """Parse a PAGE XML file from disk and populate the data model."""
         self.filepath = filepath
